@@ -10,6 +10,12 @@ import {
   MessageSquarePlus,
   Scissors,
   Search,
+  ArrowDownAZ,
+  ArrowUpZA,
+  ArrowDown01,
+  ArrowUp10,
+  Combine,
+  SplitSquareHorizontal,
   Table as TableIcon,
   Type,
   Underline,
@@ -21,6 +27,10 @@ interface ContextMenuProps {
   y: number;
   selectedText: string;
   insideTable: boolean;
+  activeColumnLabel?: string;
+  selectedRowCount?: number;
+  selectedCellCount?: number;
+  hasMergedCell?: boolean;
   onClose: () => void;
   onCut: () => void;
   onCopy: () => void;
@@ -32,7 +42,21 @@ interface ContextMenuProps {
   onAddComment: () => void;
   onReadSelection: () => void;
   onSearchSelection: (query: string) => void;
-  onTableAction: (action: 'addRow' | 'addCol' | 'delRow' | 'delCol' | 'delTable') => void;
+  onTableAction: (
+    action:
+      | 'addRow'
+      | 'addCol'
+      | 'delRow'
+      | 'delCol'
+      | 'delTable'
+      | 'mergeCells'
+      | 'unmergeCells'
+      | 'splitCells'
+      | 'sortAlphaAsc'
+      | 'sortAlphaDesc'
+      | 'sortNumAsc'
+      | 'sortNumDesc'
+  ) => void;
 }
 
 export const ContextMenu: React.FC<ContextMenuProps> = ({
@@ -40,6 +64,10 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   y,
   selectedText,
   insideTable,
+  activeColumnLabel,
+  selectedRowCount = 0,
+  selectedCellCount = 1,
+  hasMergedCell = false,
   onClose,
   onCut,
   onCopy,
@@ -75,7 +103,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
 
   // Clamp position within viewport
   const left = Math.min(x, window.innerWidth - 260);
-  const top = Math.min(y, window.innerHeight - 400);
+  const top = Math.min(y, window.innerHeight - (insideTable ? 620 : 400));
 
   const items = [
     {
@@ -295,6 +323,117 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
           >
             Delete Column
           </button>
+
+          <div className="border-t border-[#EDEBE9] mt-1 pt-1">
+            <button
+              type="button"
+              disabled={selectedCellCount < 2}
+              onClick={() => {
+                onTableAction('mergeCells');
+                onClose();
+              }}
+              title={
+                selectedCellCount < 2
+                  ? 'Select 2 or more cells to merge'
+                  : `Merge ${selectedCellCount} selected cells`
+              }
+              className={`w-full px-3 py-1 text-left flex items-center justify-between ${
+                selectedCellCount >= 2
+                  ? 'hover:bg-[#F3F2F1] text-[#242424] cursor-pointer'
+                  : 'text-[#A19F9D] cursor-default'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <Combine className="w-3.5 h-3.5 text-[#185ABD]" />
+                <span>
+                  Merge Cells{selectedCellCount >= 2 ? ` (${selectedCellCount})` : ''}
+                </span>
+              </span>
+            </button>
+
+            {hasMergedCell && (
+              <button
+                type="button"
+                onClick={() => {
+                  onTableAction('unmergeCells');
+                  onClose();
+                }}
+                className="w-full px-3 py-1 text-left hover:bg-[#F3F2F1] flex items-center gap-2 text-[#242424] cursor-pointer"
+              >
+                <SplitSquareHorizontal className="w-3.5 h-3.5 text-[#107C41]" />
+                <span>Unmerge Cells</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                onTableAction('splitCells');
+                onClose();
+              }}
+              className="w-full px-3 py-1 text-left hover:bg-[#F3F2F1] flex items-center gap-2 text-[#242424] cursor-pointer"
+            >
+              <SplitSquareHorizontal className="w-3.5 h-3.5 text-[#185ABD]" />
+              <span>Split Cells...</span>
+            </button>
+          </div>
+
+          <div className="border-t border-[#EDEBE9] mt-1 pt-1">
+            <div className="px-3 py-0.5 text-[10px] font-semibold text-[#605E5C] truncate">
+              Sort {selectedRowCount > 1 ? `${selectedRowCount} Selected Rows` : 'Rows'} by{' '}
+              {activeColumnLabel || 'Column'}
+            </div>
+            <div className="grid grid-cols-2 gap-1 px-2 py-1">
+              <button
+                type="button"
+                onClick={() => {
+                  onTableAction('sortAlphaAsc');
+                  onClose();
+                }}
+                title="Sort Alphabetically (A to Z)"
+                className="px-2 py-1 rounded border border-[#E1DFDD] hover:bg-[#CFE4FA] hover:border-[#185ABD] flex items-center gap-1.5 text-[11px] cursor-pointer"
+              >
+                <ArrowDownAZ className="w-3.5 h-3.5 text-[#185ABD] shrink-0" />
+                <span>A → Z</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onTableAction('sortAlphaDesc');
+                  onClose();
+                }}
+                title="Sort Alphabetically (Z to A)"
+                className="px-2 py-1 rounded border border-[#E1DFDD] hover:bg-[#CFE4FA] hover:border-[#185ABD] flex items-center gap-1.5 text-[11px] cursor-pointer"
+              >
+                <ArrowUpZA className="w-3.5 h-3.5 text-[#185ABD] shrink-0" />
+                <span>Z → A</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onTableAction('sortNumAsc');
+                  onClose();
+                }}
+                title="Sort Numerically (Smallest to Largest)"
+                className="px-2 py-1 rounded border border-[#E1DFDD] hover:bg-[#CFE4FA] hover:border-[#185ABD] flex items-center gap-1.5 text-[11px] cursor-pointer"
+              >
+                <ArrowDown01 className="w-3.5 h-3.5 text-[#107C41] shrink-0" />
+                <span>0 → 9</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onTableAction('sortNumDesc');
+                  onClose();
+                }}
+                title="Sort Numerically (Largest to Smallest)"
+                className="px-2 py-1 rounded border border-[#E1DFDD] hover:bg-[#CFE4FA] hover:border-[#185ABD] flex items-center gap-1.5 text-[11px] cursor-pointer"
+              >
+                <ArrowUp10 className="w-3.5 h-3.5 text-[#107C41] shrink-0" />
+                <span>9 → 0</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

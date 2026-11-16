@@ -1,5 +1,115 @@
 import { DocumentStats, HeadingOutlineItem } from '../types/word';
 
+export function resolvePageNumberPlaceholders(
+  template: string,
+  currentPage: number,
+  totalPages: number
+): string {
+  return template
+    .replace(/\{PAGE\}/g, String(currentPage))
+    .replace(/\{NUMPAGES\}/g, String(totalPages));
+}
+
+export interface PaginationMetrics {
+  currentPage: number;
+  totalPages: number;
+}
+
+export function computePaginationMetrics(
+  editorEl: HTMLElement | null,
+  printablePageHeightPx: number,
+  activeRange?: Range | null
+): PaginationMetrics {
+  if (!editorEl) {
+    return { currentPage: 1, totalPages: 1 };
+  }
+
+  const pageSpan = Math.max(300, printablePageHeightPx);
+  const breaks = Array.from(
+    editorEl.querySelectorAll<HTMLElement>('.word-page-break')
+  );
+
+  // Measure each section separated by .word-page-break elements
+  const editorRect = editorEl.getBoundingClientRect();
+  const scrollHeight = editorEl.scrollHeight;
+
+  if (breaks.length === 0) {
+    const totalPages = Math.max(1, Math.ceil(scrollHeight / pageSpan));
+    let currentPage = 1;
+
+    if (activeRange && editorEl.contains(activeRange.startContainer)) {
+      const caretY = getCaretOffsetY(editorEl, editorRect, activeRange);
+      currentPage = Math.min(totalPages, Math.max(1, Math.floor(caretY / pageSpan) + 1));
+    }
+
+    return { currentPage, totalPages };
+  }
+
+  // Compute startY and height of each explicit page-break section
+  const sectionStarts: number[] = [0];
+  breaks.forEach((brk) => {
+    sectionStarts.push(brk.offsetTop + brk.offsetHeight);
+  });
+
+  const sectionPageCounts: number[] = [];
+  for (let i = 0; i < sectionStarts.length; i++) {
+    const startY = sectionStarts[i];
+    const endY =
+      i < breaks.length ? breaks[i].offsetTop : Math.max(startY, scrollHeight);
+    const sectionHeight = Math.max(0, endY - startY);
+    sectionPageCounts.push(Math.max(1, Math.ceil(sectionHeight / pageSpan)));
+  }
+
+  const totalPages = sectionPageCounts.reduce((sum, count) => sum + count, 0);
+
+  let currentPage = 1;
+  if (activeRange && editorEl.contains(activeRange.startContainer)) {
+    const caretNode = activeRange.startContainer;
+    let sectionIndex = 0;
+    for (let i = 0; i < breaks.length; i++) {
+      const pos = breaks[i].compareDocumentPosition(caretNode);
+      if (pos & Node.DOCUMENT_POSITION_FOLLOWING) {
+        sectionIndex = i + 1;
+      } else {
+        break;
+      }
+    }
+
+    const pagesBefore = sectionPageCounts
+      .slice(0, sectionIndex)
+      .reduce((sum, c) => sum + c, 0);
+    const caretY = getCaretOffsetY(editorEl, editorRect, activeRange);
+    const localY = Math.max(0, caretY - sectionStarts[sectionIndex]);
+    const localPage = Math.min(
+      sectionPageCounts[sectionIndex] - 1,
+      Math.floor(localY / pageSpan)
+    );
+    currentPage = Math.min(totalPages, Math.max(1, pagesBefore + localPage + 1));
+  }
+
+  return { currentPage, totalPages };
+}
+
+function getCaretOffsetY(
+  editorEl: HTMLElement,
+  editorRect: DOMRect,
+  range: Range
+): number {
+  const rects = range.getClientRects();
+  if (rects.length > 0 && rects[0].height > 0) {
+    const scale = editorRect.height > 0 ? editorEl.offsetHeight / editorRect.height : 1;
+    return Math.max(0, (rects[0].top - editorRect.top) * scale);
+  }
+  const node =
+    range.startContainer.nodeType === Node.ELEMENT_NODE
+      ? (range.startContainer as HTMLElement)
+      : range.startContainer.parentElement;
+  if (node && editorEl.contains(node)) {
+    return Math.max(0, node.offsetTop);
+  }
+  return 0;
+}
+
 export function computeDocumentStats(
   editorEl: HTMLElement | null,
   pageHeightPx: number
@@ -25,9 +135,7 @@ export function computeDocumentStats(
     trimmed ? 1 : 0
   );
   const lines = trimmed ? rawText.split(/\n/).filter((l) => l.trim().length > 0).length : 0;
-  const explicitBreaks = editorEl.querySelectorAll('.word-page-break').length;
-  const estimatedByHeight = Math.max(1, Math.ceil(editorEl.scrollHeight / Math.max(400, pageHeightPx)));
-  const pages = Math.max(estimatedByHeight, explicitBreaks + 1);
+  const { totalPages } = computePaginationMetrics(editorEl, pageHeightPx);
 
   return {
     words,
@@ -35,7 +143,7 @@ export function computeDocumentStats(
     charactersNoSpaces,
     paragraphs,
     lines,
-    pages,
+    pages: totalPages,
   };
 }
 

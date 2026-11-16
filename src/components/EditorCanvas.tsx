@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   DocumentSettings,
   MARGIN_INCHES,
@@ -6,12 +6,15 @@ import {
   THEME_PALETTES,
   ViewMode,
 } from '../types/word';
+import { resolvePageNumberPlaceholders } from '../utils/editorHelpers';
 
 interface EditorCanvasProps {
   editorRef: React.RefObject<HTMLDivElement | null>;
   settings: DocumentSettings;
   viewMode: ViewMode;
   zoom: number;
+  currentPage: number;
+  totalPages: number;
   headerText: string;
   footerText: string;
   onHeaderChange: (val: string) => void;
@@ -27,6 +30,8 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   settings,
   viewMode,
   zoom,
+  currentPage,
+  totalPages,
   headerText,
   footerText,
   onHeaderChange,
@@ -36,6 +41,8 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   onContextMenu,
   onDropFile,
 }) => {
+  const [footerFocused, setFooterFocused] = useState(false);
+
   const dim = PAGE_DIMENSIONS_INCHES[settings.pageSize];
   const isLandscape = settings.orientation === 'landscape';
   const widthInches = isLandscape ? dim.height : dim.width;
@@ -62,6 +69,13 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     settings.pageBorder === 'shadow'
       ? '4px 4px 0px #8A8886, 0 2px 10px rgba(0,0,0,0.12)'
       : '0 2px 8px rgba(0, 0, 0, 0.12), 0 0 1px rgba(0, 0, 0, 0.08)';
+
+  const hasPagePlaceholder = /\{PAGE\}|\{NUMPAGES\}/.test(footerText);
+  const resolvedFooter = resolvePageNumberPlaceholders(
+    footerText,
+    currentPage,
+    totalPages
+  );
 
   return (
     <div
@@ -173,7 +187,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           className="word-editor-content relative z-10"
         />
 
-        {/* Footer Zone */}
+        {/* Footer Zone with Automatic Page Number Placeholder Resolution */}
         {(settings.showHeaderFooter || footerText.trim()) && viewMode !== 'web' && (
           <div
             style={{
@@ -185,12 +199,24 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           >
             <input
               type="text"
-              value={footerText}
+              value={footerFocused ? footerText : resolvedFooter}
+              onFocus={() => setFooterFocused(true)}
+              onBlur={() => setFooterFocused(false)}
               onChange={(e) => onFooterChange(e.target.value)}
               placeholder="Document Footer (click to edit)"
+              title={
+                hasPagePlaceholder
+                  ? 'Automatic page numbering active ({PAGE} / {NUMPAGES})'
+                  : 'Click to edit footer'
+              }
               readOnly={viewMode === 'read'}
-              className="w-full text-[9.5pt] text-[#605E5C] bg-transparent outline-none text-center placeholder:text-[#A19F9D]"
+              className="w-full text-[9.5pt] text-[#605E5C] bg-transparent outline-none text-center tabular-nums placeholder:text-[#A19F9D]"
             />
+            {footerFocused && (
+              <div className="no-print text-[10px] text-[#185ABD] text-center mt-0.5 select-none">
+                Use {'{PAGE}'} for current page and {'{NUMPAGES}'} for total pages
+              </div>
+            )}
           </div>
         )}
       </div>

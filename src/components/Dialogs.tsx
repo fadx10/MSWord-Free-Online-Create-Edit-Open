@@ -527,3 +527,73 @@ export const ProofingDialog: React.FC<{
     </div>
   </ModalShell>
 );
+
+export const SplitCellsDialog: React.FC<{
+  selectedCount: number;
+  initialCols: number;
+  initialRows: number;
+  onSplit: (cols: number, rows: number) => void;
+  onClose: () => void;
+}> = ({ selectedCount, initialCols, initialRows, onSplit, onClose }) => {
+  const [cols, setCols] = useState(Math.max(1, initialCols));
+  const [rows, setRows] = useState(Math.max(1, initialRows));
+
+  return (
+    <ModalShell title="Split Cells" onClose={onClose} widthClass="max-w-xs">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSplit(cols, rows);
+          onClose();
+        }}
+        className="space-y-3 text-xs text-[#242424]"
+      >
+        <p className="text-[#605E5C]">
+          Split {selectedCount > 1 ? `${selectedCount} selected cells` : 'the active cell'} into:
+        </p>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-[#605E5C] mb-1">Number of columns</label>
+            <input
+              type="number"
+              min={1}
+              max={8}
+              value={cols}
+              onChange={(e) => setCols(Math.max(1, Math.min(8, Number(e.target.value) || 1)))}
+              className="w-full h-8 px-2.5 border border-[#C8C6C4] rounded focus:border-[#185ABD] outline-none tabular-nums"
+            />
+          </div>
+          <div>
+            <label className="block text-[#605E5C] mb-1">Number of rows</label>
+            <input
+              type="number"
+              min={1}
+              max={8}
+              value={rows}
+              onChange={(e) => setRows(Math.max(1, Math.min(8, Number(e.target.value) || 1)))}
+              className="w-full h-8 px-2.5 border border-[#C8C6C4] rounded focus:border-[#185ABD] outline-none tabular-nums"
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1.5 rounded border border-[#C8C6C4] hover:bg-[#F3F2F1] cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="px-4 py-1.5 rounded bg-[#185ABD] text-white font-semibold hover:bg-[#104A9E] cursor-pointer"
+          >
+            Split
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  );
+};
+

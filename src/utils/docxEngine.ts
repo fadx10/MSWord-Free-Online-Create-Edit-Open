@@ -8,6 +8,7 @@ import {
   HeadingLevel,
   ImageRun,
   Packer,
+  PageNumber,
   PageOrientation,
   Paragraph,
   Table,
@@ -357,11 +358,13 @@ function convertTableElement(tableEl: HTMLTableElement): Table {
   trList.forEach((tr) => {
     const cells: TableCell[] = [];
     tr.querySelectorAll('th, td').forEach((cell) => {
-      const cellEl = cell as HTMLElement;
+      const cellEl = cell as HTMLTableCellElement;
       const isHeader = cell.tagName.toLowerCase() === 'th';
       const runs = collectRunsFromNode(cellEl, { bold: isHeader });
       cells.push(
         new TableCell({
+          columnSpan: cellEl.colSpan > 1 ? cellEl.colSpan : undefined,
+          rowSpan: cellEl.rowSpan > 1 ? cellEl.rowSpan : undefined,
           children: [
             new Paragraph({
               children: runs.length ? runs : [new TextRun('')],
@@ -592,13 +595,30 @@ export async function exportHtmlToDocx(
                 children: [
                   new Paragraph({
                     alignment: AlignmentType.CENTER,
-                    children: [
-                      new TextRun({
-                        text: footerText,
-                        color: '605E5C',
-                        size: 18,
+                    children: footerText
+                      .split(/(\{PAGE\}|\{NUMPAGES\})/g)
+                      .filter(Boolean)
+                      .map((part) => {
+                        if (part === '{PAGE}') {
+                          return new TextRun({
+                            children: [PageNumber.CURRENT],
+                            color: '605E5C',
+                            size: 18,
+                          });
+                        }
+                        if (part === '{NUMPAGES}') {
+                          return new TextRun({
+                            children: [PageNumber.TOTAL_PAGES],
+                            color: '605E5C',
+                            size: 18,
+                          });
+                        }
+                        return new TextRun({
+                          text: part,
+                          color: '605E5C',
+                          size: 18,
+                        });
                       }),
-                    ],
                   }),
                 ],
               }),

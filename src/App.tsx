@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, X } from 'lucide-react';
+import { BookOpen, Check, X } from 'lucide-react';
 import { CommentsPane } from './components/CommentsPane';
 import { ContextMenu } from './components/ContextMenu';
 import {
@@ -8,6 +8,7 @@ import {
   LinkDialog,
   MailMergeDialog,
   ProofingDialog,
+  SplitCellsDialog,
   WatermarkDialog,
   WordCountDialog,
 } from './components/Dialogs';
@@ -31,6 +32,7 @@ import {
   DocumentSettings,
   DocumentStats,
   HeadingOutlineItem,
+  MARGIN_INCHES,
   PAGE_DIMENSIONS_INCHES,
   RibbonTab,
   ViewMode,
@@ -45,10 +47,17 @@ import {
   buildTableHtml,
   buildTableOfContentsHtml,
   computeDocumentStats,
+  computePaginationMetrics,
   extractHeadingOutline,
   runQuickProofingCheck,
   SpellingIssue,
 } from './utils/editorHelpers';
+import {
+  getSelectedTableCells,
+  mergeTableCells,
+  splitTableCells,
+  unmergeCell,
+} from './utils/tableHelpers';
 
 const STORAGE_RECENT_KEY = 'word_online_recent_docs_v1';
 const STORAGE_ACTIVE_ID_KEY = 'word_online_active_id_v1';
@@ -119,8 +128,15 @@ export default function App() {
     | 'citation'
     | 'mailMerge'
     | 'proofing'
+    | 'splitCells'
   >(null);
   const [proofingIssues, setProofingIssues] = useState<SpellingIssue[]>([]);
+  const [splitTarget, setSplitTarget] = useState<{
+    table: HTMLTableElement;
+    cells: HTMLTableCellElement[];
+    initialCols: number;
+    initialRows: number;
+  } | null>(null);
 
   // Context Menu
   const [contextMenu, setContextMenu] = useState<{
@@ -129,6 +145,9 @@ export default function App() {
     selectedText: string;
     insideTable: boolean;
     targetCell: HTMLTableCellElement | null;
+    selectedTableRows: HTMLTableRowElement[];
+    selectedTableCells: HTMLTableCellElement[];
+    activeColumnLabel: string;
   } | null>(null);
 
   // Find & Replace
@@ -144,6 +163,7 @@ export default function App() {
     lines: 1,
     pages: 1,
   });
+  const [currentPage, setCurrentPage] = useState(1);
   const [headings, setHeadings] = useState<HeadingOutlineItem[]>([]);
   const [formatting, setFormatting] = useState<ActiveFormattingState>({
     bold: false,
@@ -174,11 +194,24 @@ export default function App() {
   } | null>(null);
   const [isReadingAloud, setIsReadingAloud] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [saveToastVisible, setSaveToastVisible] = useState(false);
 
   const editorRef = useRef<HTMLDivElement | null>(null);
   const savedRangeRef = useRef<Range | null>(null);
   const hiddenOpenFileRef = useRef<HTMLInputElement | null>(null);
   const toastTimerRef = useRef<number | null>(null);
+  const saveToastTimerRef = useRef<number | null>(null);
+  const lastSavedContentRef = useRef<{
+    id: string;
+    contentHtml: string;
+    headerText: string;
+    footerText: string;
+  }>({
+    id: initialStore.active.id,
+    contentHtml: initialStore.active.contentHtml,
+    headerText: initialStore.active.headerText,
+    footerText: initialStore.active.footerText,
+  });
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -186,25 +219,57 @@ export default function App() {
     toastTimerRef.current = window.setTimeout(() => setToast(null), 3200);
   }, []);
 
+  const showSaveToast = useCallback(() => {
+    setSaveToastVisible(true);
+    if (saveToastTimerRef.current) window.clearTimeout(saveToastTimerRef.current);
+    saveToastTimerRef.current = window.setTimeout(() => setSaveToastVisible(false), 2400);
+  }, []);
+
   // Sync browser tab title like MS Word
   useEffect(() => {
     document.title = `${activeDoc.title} - Word`;
   }, [activeDoc.title]);
+
+  const getPrintablePageHeightPx = useCallback(() => {
+    const dim = PAGE_DIMENSIONS_INCHES[activeDoc.settings.pageSize];
+    const heightIn = activeDoc.settings.orientation === 'landscape' ? dim.width : dim.height;
+    const margins = MARGIN_INCHES[activeDoc.settings.margins];
+    return Math.max(300, (heightIn - margins.top - margins.bottom) * 96);
+  }, [activeDoc.settings.margins, activeDoc.settings.orientation, activeDoc.settings.pageSize]);
 
   // Hydrate contentEditable only when switching documents
   useEffect(() => {
     if (editorRef.current) {
       editorRef.current.innerHTML = activeDoc.contentHtml || '<p><br /></p>';
     }
-    const dim = PAGE_DIMENSIONS_INCHES[activeDoc.settings.pageSize];
-    const heightIn = activeDoc.settings.orientation === 'landscape' ? dim.width : dim.height;
-    const estStats = computeDocumentStats(editorRef.current, heightIn * 96);
+    const printableH = getPrintablePageHeightPx();
+    const estStats = computeDocumentStats(editorRef.current, printableH);
     setStats(estStats);
+    setCurrentPage(1);
     setHeadings(extractHeadingOutline(editorRef.current));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeDoc.id]);
 
-  // Persist active & recent docs to localStorage
+  // Recalculate page metrics when page size, margins, or orientation change
   useEffect(() => {
+    const printableH = getPrintablePageHeightPx();
+    const { currentPage: nextPage, totalPages } = computePaginationMetrics(
+      editorRef.current,
+      printableH,
+      savedRangeRef.current
+    );
+    setCurrentPage(nextPage);
+    setStats((prev) => (prev.pages === totalPages ? prev : { ...prev, pages: totalPages }));
+  }, [getPrintablePageHeightPx]);
+
+  // Persist active & recent docs to localStorage and notify on debounced content changes
+  useEffect(() => {
+    const contentChanged =
+      lastSavedContentRef.current.id === activeDoc.id &&
+      (lastSavedContentRef.current.contentHtml !== activeDoc.contentHtml ||
+        lastSavedContentRef.current.headerText !== activeDoc.headerText ||
+        lastSavedContentRef.current.footerText !== activeDoc.footerText);
+
     const timer = window.setTimeout(() => {
       try {
         setRecentDocs((prev) => {
@@ -215,21 +280,33 @@ export default function App() {
           return updated;
         });
         setLastSavedText('Saved locally');
+        lastSavedContentRef.current = {
+          id: activeDoc.id,
+          contentHtml: activeDoc.contentHtml,
+          headerText: activeDoc.headerText,
+          footerText: activeDoc.footerText,
+        };
+        if (contentChanged) {
+          showSaveToast();
+        }
       } catch {
         // Ignore storage quota issues
       }
-    }, 350);
+    }, 800);
     return () => window.clearTimeout(timer);
-  }, [activeDoc]);
+  }, [activeDoc, showSaveToast]);
 
   const refreshEditorDerivedState = useCallback(() => {
     const el = editorRef.current;
     if (!el) return;
     const html = el.innerHTML;
-    const dim = PAGE_DIMENSIONS_INCHES[activeDoc.settings.pageSize];
-    const heightIn = activeDoc.settings.orientation === 'landscape' ? dim.width : dim.height;
+    const printableH = getPrintablePageHeightPx();
+    const sel = window.getSelection();
+    const range = sel && sel.rangeCount > 0 ? sel.getRangeAt(0) : savedRangeRef.current;
+    const pagination = computePaginationMetrics(el, printableH, range);
 
-    setStats(computeDocumentStats(el, heightIn * 96));
+    setStats(computeDocumentStats(el, printableH));
+    setCurrentPage(pagination.currentPage);
     setHeadings(extractHeadingOutline(el));
     setLastSavedText('Saving...');
 
@@ -244,7 +321,7 @@ export default function App() {
       return [...prev.slice(-49), html];
     });
     setRedoStack([]);
-  }, [activeDoc.settings.orientation, activeDoc.settings.pageSize]);
+  }, [getPrintablePageHeightPx]);
 
   const saveSelection = useCallback(() => {
     const sel = window.getSelection();
@@ -266,6 +343,16 @@ export default function App() {
 
   const updateFormattingState = useCallback(() => {
     saveSelection();
+    const selObj = window.getSelection();
+    const activeRange =
+      selObj && selObj.rangeCount > 0 ? selObj.getRangeAt(0) : savedRangeRef.current;
+    const { currentPage: nextPage, totalPages } = computePaginationMetrics(
+      editorRef.current,
+      getPrintablePageHeightPx(),
+      activeRange
+    );
+    setCurrentPage(nextPage);
+    setStats((prev) => (prev.pages === totalPages ? prev : { ...prev, pages: totalPages }));
     try {
       const bold = document.queryCommandState('bold');
       const italic = document.queryCommandState('italic');
@@ -640,7 +727,21 @@ export default function App() {
 
   // Table cell contextual actions
   const handleTableAction = useCallback(
-    (action: 'addRow' | 'addCol' | 'delRow' | 'delCol' | 'delTable') => {
+    (
+      action:
+        | 'addRow'
+        | 'addCol'
+        | 'delRow'
+        | 'delCol'
+        | 'delTable'
+        | 'mergeCells'
+        | 'unmergeCells'
+        | 'splitCells'
+        | 'sortAlphaAsc'
+        | 'sortAlphaDesc'
+        | 'sortNumAsc'
+        | 'sortNumDesc'
+    ) => {
       const cell = contextMenu?.targetCell;
       if (!cell) return;
       const row = cell.closest('tr');
@@ -673,10 +774,132 @@ export default function App() {
         });
       } else if (action === 'delTable') {
         table.remove();
+      } else if (action === 'mergeCells') {
+        const cells = contextMenu.selectedTableCells;
+        if (mergeTableCells(table, cells)) {
+          showToast(`Merged ${cells.length} cells`);
+        } else {
+          showToast('Select 2 or more adjacent cells in the same table section to merge');
+        }
+      } else if (action === 'unmergeCells') {
+        const merged = contextMenu.selectedTableCells.filter(
+          (c) => (c.colSpan || 1) > 1 || (c.rowSpan || 1) > 1
+        );
+        let unmergedCount = 0;
+        merged.forEach((c) => {
+          if (unmergeCell(table, c)) unmergedCount++;
+        });
+        if (unmergedCount > 0) {
+          showToast(`Unmerged ${unmergedCount} cell${unmergedCount === 1 ? '' : 's'}`);
+        }
+      } else if (action === 'splitCells') {
+        const cells =
+          contextMenu.selectedTableCells.length > 0
+            ? contextMenu.selectedTableCells
+            : [cell];
+        const primary = cells[0];
+        setSplitTarget({
+          table,
+          cells,
+          initialCols: primary.colSpan > 1 ? primary.colSpan : 2,
+          initialRows: primary.rowSpan > 1 ? primary.rowSpan : 1,
+        });
+        setModal('splitCells');
+        return;
+      } else if (
+        action === 'sortAlphaAsc' ||
+        action === 'sortAlphaDesc' ||
+        action === 'sortNumAsc' ||
+        action === 'sortNumDesc'
+      ) {
+        const selectedRows = contextMenu.selectedTableRows;
+        let rowsToSort: HTMLTableRowElement[] = [];
+
+        if (selectedRows.length > 1) {
+          rowsToSort = [...selectedRows];
+        } else {
+          const tbody = table.querySelector('tbody');
+          const candidateRows = tbody
+            ? Array.from(tbody.querySelectorAll<HTMLTableRowElement>(':scope > tr'))
+            : Array.from(table.querySelectorAll<HTMLTableRowElement>('tr'));
+          rowsToSort = candidateRows.filter((tr, idx) => {
+            if (tr.closest('thead')) return false;
+            if (!tbody && idx === 0 && tr.querySelector('th')) return false;
+            return true;
+          });
+        }
+
+        if (rowsToSort.length < 2) {
+          showToast('Need at least 2 data rows to sort');
+          return;
+        }
+
+        const getCellText = (tr: HTMLTableRowElement) =>
+          (tr.children[cellIndex]?.textContent ?? '').trim();
+
+        const parseNumeric = (raw: string): number | null => {
+          const cleaned = raw.replace(/,/g, '').trim();
+          const match = cleaned.match(/-?\d+(?:\.\d+)?/);
+          if (!match) return null;
+          const num = Number(match[0]);
+          return Number.isFinite(num) ? num : null;
+        };
+
+        // Record insertion anchors so selected rows stay in their original slots
+        const parent = rowsToSort[0].parentElement;
+        if (!parent) return;
+        const placeholderNodes = rowsToSort.map((r) => {
+          const marker = document.createComment('sort-slot');
+          r.parentElement?.insertBefore(marker, r);
+          return marker;
+        });
+
+        const sorted = [...rowsToSort].sort((a, b) => {
+          const textA = getCellText(a);
+          const textB = getCellText(b);
+
+          if (action === 'sortNumAsc' || action === 'sortNumDesc') {
+            const numA = parseNumeric(textA);
+            const numB = parseNumeric(textB);
+            if (numA === null && numB === null) {
+              return textA.localeCompare(textB, undefined, { sensitivity: 'base' });
+            }
+            if (numA === null) return 1;
+            if (numB === null) return -1;
+            return action === 'sortNumAsc' ? numA - numB : numB - numA;
+          }
+
+          if (!textA && !textB) return 0;
+          if (!textA) return 1;
+          if (!textB) return -1;
+          const cmp = textA.localeCompare(textB, undefined, {
+            sensitivity: 'base',
+            numeric: false,
+          });
+          return action === 'sortAlphaAsc' ? cmp : -cmp;
+        });
+
+        sorted.forEach((sortedRow, i) => {
+          const marker = placeholderNodes[i];
+          marker.parentElement?.insertBefore(sortedRow, marker);
+          marker.remove();
+        });
+
+        const modeLabel =
+          action === 'sortAlphaAsc'
+            ? 'A → Z'
+            : action === 'sortAlphaDesc'
+              ? 'Z → A'
+              : action === 'sortNumAsc'
+                ? '0 → 9'
+                : '9 → 0';
+        showToast(
+          `Sorted ${sorted.length} row${sorted.length === 1 ? '' : 's'} by ${contextMenu.activeColumnLabel} (${modeLabel})`
+        );
       }
       refreshEditorDerivedState();
     },
-    [contextMenu, refreshEditorDerivedState]
+    [contextMenu, refreshEditorDerivedState, showToast]
   );
 
   // Find & Replace
@@ -876,6 +1099,28 @@ export default function App() {
         action: () => insertHtmlAtCursor(buildTableHtml(3, 3)),
       },
       {
+        id: 'insert-page-number',
+        label: 'Insert Page Number in Footer',
+        category: 'Insert',
+        action: () => {
+          setActiveDoc((prev) => {
+            const existing = prev.footerText.trim();
+            const token = 'Page {PAGE} of {NUMPAGES}';
+            const nextFooter = existing
+              ? /\{PAGE\}|\{NUMPAGES\}/.test(existing)
+                ? existing
+                : `${existing} · ${token}`
+              : token;
+            return {
+              ...prev,
+              footerText: nextFooter,
+              settings: { ...prev.settings, showHeaderFooter: true },
+            };
+          });
+          showToast('Inserted automatic page number in footer');
+        },
+      },
+      {
         id: 'word-count',
         label: 'Word Count & Statistics',
         category: 'Review',
@@ -1048,6 +1293,40 @@ export default function App() {
           onToggleHeaderFooter={() =>
             updateSettings({ showHeaderFooter: !activeDoc.settings.showHeaderFooter })
           }
+          onInsertPageNumber={(format) => {
+            setActiveDoc((prev) => {
+              const existing = prev.footerText
+                .replace(/\s*·?\s*Page\s*\{PAGE\}(\s*of\s*\{NUMPAGES\})?/gi, '')
+                .replace(/\s*·?\s*\{PAGE\}(\s*\/\s*\{NUMPAGES\})?/gi, '')
+                .trim();
+
+              if (format === 'remove') {
+                return {
+                  ...prev,
+                  footerText: existing,
+                };
+              }
+
+              const token =
+                format === 'pageOfTotal'
+                  ? 'Page {PAGE} of {NUMPAGES}'
+                  : format === 'pageOnly'
+                    ? 'Page {PAGE}'
+                    : '{PAGE}';
+
+              const nextFooter = existing ? `${existing} · ${token}` : token;
+              return {
+                ...prev,
+                footerText: nextFooter,
+                settings: { ...prev.settings, showHeaderFooter: true },
+              };
+            });
+            showToast(
+              format === 'remove'
+                ? 'Removed page numbers from footer'
+                : 'Automatic page numbering added to footer'
+            );
+          }}
           onInsertDateTime={() =>
             insertHtmlAtCursor(
               new Date().toLocaleDateString(undefined, {
@@ -1146,6 +1425,8 @@ export default function App() {
           settings={activeDoc.settings}
           viewMode={viewMode}
           zoom={zoom}
+          currentPage={currentPage}
+          totalPages={stats.pages}
           headerText={activeDoc.headerText}
           footerText={activeDoc.footerText}
           onHeaderChange={(val) => setActiveDoc((prev) => ({ ...prev, headerText: val }))}
@@ -1154,16 +1435,63 @@ export default function App() {
           onSelectionChange={handleEditorMouseUp}
           onContextMenu={(e) => {
             e.preventDefault();
-            saveSelection();
-            const selText = window.getSelection()?.toString().trim() || '';
+            const sel = window.getSelection();
             const targetEl = e.target as HTMLElement;
             const cell = targetEl.closest('td, th') as HTMLTableCellElement | null;
+            const table = cell?.closest('table') ?? null;
+            const activeRow = cell?.closest('tr') ?? null;
+            const colIndex =
+              cell && activeRow ? Array.from(activeRow.children).indexOf(cell) : 0;
+
+            const prevRange = savedRangeRef.current;
+            let activeRange: Range | null = null;
+            if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+              activeRange = sel.getRangeAt(0).cloneRange();
+              savedRangeRef.current = activeRange;
+            } else if (
+              prevRange &&
+              !prevRange.collapsed &&
+              cell &&
+              prevRange.intersectsNode(cell)
+            ) {
+              activeRange = prevRange;
+            } else {
+              saveSelection();
+            }
+
+            const selText =
+              activeRange?.toString().trim() || sel?.toString().trim() || '';
+
+            let selectedTableRows: HTMLTableRowElement[] = [];
+            let selectedTableCells: HTMLTableCellElement[] = [];
+            let activeColumnLabel = `Col ${colIndex + 1}`;
+
+            if (table && cell) {
+              const headerRow =
+                table.querySelector('thead tr') || table.querySelector('tr');
+              const headerText = headerRow?.children[colIndex]?.textContent?.trim();
+              if (headerText && headerRow !== activeRow) {
+                activeColumnLabel = `"${headerText.slice(0, 18)}${headerText.length > 18 ? '…' : ''}"`;
+              }
+
+              selectedTableCells = getSelectedTableCells(table, cell, activeRange);
+
+              if (activeRange && !activeRange.collapsed) {
+                selectedTableRows = Array.from(table.querySelectorAll('tr')).filter(
+                  (tr) => !tr.closest('thead') && activeRange.intersectsNode(tr)
+                );
+              }
+            }
+
             setContextMenu({
               x: e.clientX,
               y: e.clientY,
               selectedText: selText,
               insideTable: Boolean(cell),
               targetCell: cell,
+              selectedTableRows,
+              selectedTableCells,
+              activeColumnLabel,
             });
           }}
           onDropFile={(file) => {
@@ -1201,7 +1529,7 @@ export default function App() {
       {/* Bottom MS Word Status Bar */}
       <StatusBar
         stats={stats}
-        currentPage={1}
+        currentPage={currentPage}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         zoom={zoom}
@@ -1216,6 +1544,12 @@ export default function App() {
           y={contextMenu.y}
           selectedText={contextMenu.selectedText}
           insideTable={contextMenu.insideTable}
+          activeColumnLabel={contextMenu.activeColumnLabel}
+          selectedRowCount={contextMenu.selectedTableRows.length}
+          selectedCellCount={contextMenu.selectedTableCells.length}
+          hasMergedCell={contextMenu.selectedTableCells.some(
+            (c) => (c.colSpan || 1) > 1 || (c.rowSpan || 1) > 1
+          )}
           onClose={() => setContextMenu(null)}
           onCut={handleCut}
           onCopy={handleCopy}
@@ -1361,12 +1695,42 @@ export default function App() {
         />
       )}
 
-      {/* Subtle Action Toast */}
-      {toast && (
-        <div className="no-print fixed bottom-9 right-4 z-50 bg-[#242424] text-white text-xs px-3.5 py-2 rounded shadow-lg border border-white/10">
-          {toast}
-        </div>
+      {modal === 'splitCells' && splitTarget && (
+        <SplitCellsDialog
+          selectedCount={splitTarget.cells.length}
+          initialCols={splitTarget.initialCols}
+          initialRows={splitTarget.initialRows}
+          onSplit={(cols, rows) => {
+            if (splitTableCells(splitTarget.table, splitTarget.cells, cols, rows)) {
+              refreshEditorDerivedState();
+              showToast(`Split into ${cols} × ${rows}`);
+            }
+          }}
+          onClose={() => {
+            setModal(null);
+            setSplitTarget(null);
+          }}
+        />
       )}
+
+      {/* Subtle Action & Auto-Save Toasts */}
+      <div className="no-print fixed bottom-9 right-4 z-50 flex flex-col items-end gap-1.5 pointer-events-none">
+        {saveToastVisible && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="bg-white/95 text-[#484644] text-[11px] font-medium px-3 py-1.5 rounded shadow-sm border border-[#D2D0CE] flex items-center gap-1.5"
+          >
+            <Check className="w-3.5 h-3.5 text-[#107C41] shrink-0" />
+            <span>Changes saved to local storage</span>
+          </div>
+        )}
+        {toast && (
+          <div className="bg-[#242424] text-white text-xs px-3.5 py-2 rounded shadow-lg border border-white/10">
+            {toast}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

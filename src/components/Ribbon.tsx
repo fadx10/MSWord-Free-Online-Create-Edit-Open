@@ -16,6 +16,7 @@ import {
   FilePlus,
   FileText,
   Globe,
+  Hash,
   Highlighter,
   Image as ImageIcon,
   IndentDecrease,
@@ -118,6 +119,7 @@ interface RibbonProps {
   onInsertCallout: () => void;
   onOpenLinkDialog: () => void;
   onToggleHeaderFooter: () => void;
+  onInsertPageNumber: (format: 'pageOfTotal' | 'pageOnly' | 'numberOnly' | 'remove') => void;
   onInsertDateTime: () => void;
   onInsertSymbol: (sym: string) => void;
   onOpenDrawPad: () => void;
@@ -278,6 +280,7 @@ export const Ribbon: React.FC<RibbonProps> = ({
   onInsertCallout,
   onOpenLinkDialog,
   onToggleHeaderFooter,
+  onInsertPageNumber,
   onInsertDateTime,
   onInsertSymbol,
   onOpenDrawPad,
@@ -935,6 +938,67 @@ export const Ribbon: React.FC<RibbonProps> = ({
                     icon={<Bookmark className="w-5 h-5 text-[#185ABD]" />}
                     label="Header/Footer"
                   />
+                  <div className="relative">
+                    <LargeBtn
+                      active={openMenu === 'pageNumber'}
+                      onClick={() => toggleMenu('pageNumber')}
+                      title="Insert Automatic Page Number in Footer"
+                      icon={<Hash className="w-5 h-5 text-[#185ABD]" />}
+                      label="Page Number"
+                    />
+                    {openMenu === 'pageNumber' && (
+                      <div className="absolute left-0 top-16 bg-white border border-[#D2D0CE] rounded shadow-xl py-1 z-50 w-52">
+                        <div className="px-3 py-1 text-[10.5px] font-semibold text-[#605E5C] border-b border-[#EDEBE9]">
+                          Insert Page Number in Footer
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onInsertPageNumber('pageOfTotal');
+                            setOpenMenu(null);
+                          }}
+                          className="w-full px-3 py-1.5 text-left text-xs hover:bg-[#F3F2F1] flex items-center justify-between cursor-pointer"
+                        >
+                          <span>Page 1 of X</span>
+                          <span className="text-[10px] font-mono text-[#605E5C]">{'{PAGE}/{NUMPAGES}'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onInsertPageNumber('pageOnly');
+                            setOpenMenu(null);
+                          }}
+                          className="w-full px-3 py-1.5 text-left text-xs hover:bg-[#F3F2F1] flex items-center justify-between cursor-pointer"
+                        >
+                          <span>Page 1</span>
+                          <span className="text-[10px] font-mono text-[#605E5C]">Page {'{PAGE}'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onInsertPageNumber('numberOnly');
+                            setOpenMenu(null);
+                          }}
+                          className="w-full px-3 py-1.5 text-left text-xs hover:bg-[#F3F2F1] flex items-center justify-between cursor-pointer"
+                        >
+                          <span>Plain Number</span>
+                          <span className="text-[10px] font-mono text-[#605E5C]">{'{PAGE}'}</span>
+                        </button>
+                        <div className="border-t border-[#EDEBE9] mt-1 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onInsertPageNumber('remove');
+                              setOpenMenu(null);
+                            }}
+                            className="w-full px-3 py-1.5 text-left text-xs text-[#A4262C] hover:bg-[#F3F2F1] cursor-pointer"
+                          >
+                            Remove Page Numbers
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <LargeBtn
                     onClick={onInsertDateTime}
                     title="Insert Current Date"
