@@ -8,6 +8,14 @@ import {
 } from '../types/word';
 import { resolvePageNumberPlaceholders } from '../utils/editorHelpers';
 
+export interface SearchHighlightRect {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+  active: boolean;
+}
+
 interface EditorCanvasProps {
   editorRef: React.RefObject<HTMLDivElement | null>;
   settings: DocumentSettings;
@@ -17,6 +25,7 @@ interface EditorCanvasProps {
   totalPages: number;
   headerText: string;
   footerText: string;
+  searchHighlightRects?: SearchHighlightRect[];
   onHeaderChange: (val: string) => void;
   onFooterChange: (val: string) => void;
   onInput: () => void;
@@ -34,6 +43,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   totalPages,
   headerText,
   footerText,
+  searchHighlightRects = [],
   onHeaderChange,
   onFooterChange,
   onInput,
@@ -167,25 +177,48 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           </div>
         )}
 
-        {/* Main ContentEditable Document Surface */}
-        <div
-          ref={editorRef}
-          contentEditable={viewMode !== 'read'}
-          suppressContentEditableWarning
-          spellCheck
-          onInput={onInput}
-          onKeyUp={onSelectionChange}
-          onMouseUp={onSelectionChange}
-          onContextMenu={onContextMenu}
-          style={{
-            fontFamily: theme.fontBody,
-            lineHeight: settings.lineSpacing,
-            columnCount: settings.columns,
-            columnGap: settings.columns > 1 ? '28px' : undefined,
-            minHeight: `${Math.max(300, pxMinHeight - padTop - padBottom)}px`,
-          }}
-          className="word-editor-content relative z-10"
-        />
+        {/* Main ContentEditable Document Surface + Non-destructive Fallback Search Overlay */}
+        <div className="relative">
+          {searchHighlightRects.length > 0 && (
+            <div
+              aria-hidden="true"
+              className="no-print pointer-events-none absolute inset-0 z-0 overflow-hidden"
+            >
+              {searchHighlightRects.map((rect, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    top: `${rect.top}px`,
+                    left: `${rect.left}px`,
+                    width: `${rect.width}px`,
+                    height: `${rect.height}px`,
+                    backgroundColor: rect.active ? '#f59e0b' : '#fef08a',
+                  }}
+                  className="absolute rounded-[2px]"
+                />
+              ))}
+            </div>
+          )}
+
+          <div
+            ref={editorRef}
+            contentEditable={viewMode !== 'read'}
+            suppressContentEditableWarning
+            spellCheck
+            onInput={onInput}
+            onKeyUp={onSelectionChange}
+            onMouseUp={onSelectionChange}
+            onContextMenu={onContextMenu}
+            style={{
+              fontFamily: theme.fontBody,
+              lineHeight: settings.lineSpacing,
+              columnCount: settings.columns,
+              columnGap: settings.columns > 1 ? '28px' : undefined,
+              minHeight: `${Math.max(300, pxMinHeight - padTop - padBottom)}px`,
+            }}
+            className="word-editor-content relative z-10"
+          />
+        </div>
 
         {/* Footer Zone with Automatic Page Number Placeholder Resolution */}
         {(settings.showHeaderFooter || footerText.trim()) && viewMode !== 'web' && (

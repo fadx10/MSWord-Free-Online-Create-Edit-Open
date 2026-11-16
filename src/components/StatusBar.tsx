@@ -10,6 +10,8 @@ interface StatusBarProps {
   zoom: number;
   onZoomChange: (zoom: number) => void;
   onOpenWordCount: () => void;
+  autoSaveEnabled: boolean;
+  onOpenOptions: () => void;
 }
 
 export const StatusBar: React.FC<StatusBarProps> = ({
@@ -20,6 +22,8 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   zoom,
   onZoomChange,
   onOpenWordCount,
+  autoSaveEnabled,
+  onOpenOptions,
 }) => {
   return (
     <footer className="no-print h-6 bg-[#F3F2F1] border-t border-[#D2D0CE] px-3 flex items-center justify-between text-[11px] text-[#484644] select-none shrink-0">
@@ -46,6 +50,22 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         <span className="hidden sm:inline text-[#605E5C] whitespace-nowrap">
           English (United States)
         </span>
+
+        <button
+          type="button"
+          onClick={onOpenOptions}
+          title="Click to configure Auto-Save in Word Options"
+          className="hidden md:flex items-center gap-1.5 hover:bg-[#E1DFDD] px-1.5 py-0.5 rounded whitespace-nowrap cursor-pointer transition-colors"
+        >
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${
+              autoSaveEnabled ? 'bg-[#107C41]' : 'bg-[#D97706]'
+            }`}
+          />
+          <span className="text-[#484644]">
+            Auto-Save: {autoSaveEnabled ? 'On' : 'Off'}
+          </span>
+        </button>
       </div>
 
       {/* Right: View Modes + Zoom Slider */}

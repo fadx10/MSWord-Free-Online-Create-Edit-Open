@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { ChevronDown, ChevronUp, Replace, Search, X } from 'lucide-react';
 import { HeadingOutlineItem } from '../types/word';
 
@@ -11,7 +11,10 @@ interface NavigationPaneProps {
   onFindQueryChange: (q: string) => void;
   replaceQuery: string;
   onReplaceQueryChange: (q: string) => void;
+  caseSensitive: boolean;
+  onCaseSensitiveChange: (val: boolean) => void;
   matchCount: number;
+  activeMatchIndex: number;
   onFindNext: (direction: 1 | -1) => void;
   onReplaceOne: () => void;
   onReplaceAll: () => void;
@@ -27,14 +30,15 @@ export const NavigationPane: React.FC<NavigationPaneProps> = ({
   onFindQueryChange,
   replaceQuery,
   onReplaceQueryChange,
+  caseSensitive,
+  onCaseSensitiveChange,
   matchCount,
+  activeMatchIndex,
   onFindNext,
   onReplaceOne,
   onReplaceAll,
   onClose,
 }) => {
-  const [caseSensitive, setCaseSensitive] = useState(false);
-
   return (
     <aside className="no-print w-64 bg-[#FAF9F8] border-r border-[#D2D0CE] flex flex-col shrink-0 select-none">
       <div className="h-9 px-3 flex items-center justify-between border-b border-[#E1DFDD]">
@@ -123,7 +127,10 @@ export const NavigationPane: React.FC<NavigationPaneProps> = ({
                   value={findQuery}
                   onChange={(e) => onFindQueryChange(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') onFindNext(1);
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      onFindNext(e.shiftKey ? -1 : 1);
+                    }
                   }}
                   placeholder="Search text..."
                   className="w-full text-xs outline-none bg-transparent"
@@ -131,28 +138,44 @@ export const NavigationPane: React.FC<NavigationPaneProps> = ({
               </div>
               <div className="mt-1.5 flex items-center justify-between text-[11px] text-[#605E5C]">
                 <span className="tabular-nums">
-                  {findQuery.trim() ? `${matchCount} match${matchCount === 1 ? '' : 'es'}` : 'Type to search'}
+                  {findQuery.trim()
+                    ? matchCount > 0
+                      ? `${Math.min(activeMatchIndex + 1, matchCount)} of ${matchCount} match${matchCount === 1 ? '' : 'es'}`
+                      : '0 matches'
+                    : 'Type to search'}
                 </span>
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
                     onClick={() => onFindNext(-1)}
-                    title="Previous match"
-                    className="p-1 rounded hover:bg-[#E1DFDD] cursor-pointer"
+                    disabled={matchCount === 0}
+                    title="Previous match (Shift+Enter)"
+                    className="p-1 rounded hover:bg-[#E1DFDD] disabled:opacity-40 cursor-pointer"
                   >
                     <ChevronUp className="w-3.5 h-3.5" />
                   </button>
                   <button
                     type="button"
                     onClick={() => onFindNext(1)}
-                    title="Next match"
-                    className="p-1 rounded hover:bg-[#E1DFDD] cursor-pointer"
+                    disabled={matchCount === 0}
+                    title="Next match (Enter)"
+                    className="p-1 rounded hover:bg-[#E1DFDD] disabled:opacity-40 cursor-pointer"
                   >
                     <ChevronDown className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
             </div>
+
+            <label className="flex items-center gap-2 text-[11px] text-[#605E5C] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={caseSensitive}
+                onChange={(e) => onCaseSensitiveChange(e.target.checked)}
+                className="accent-[#185ABD]"
+              />
+              <span>Match case</span>
+            </label>
 
             {activeSubTab === 'replace' && (
               <div className="pt-2 border-t border-[#E1DFDD] space-y-2.5">
@@ -170,21 +193,11 @@ export const NavigationPane: React.FC<NavigationPaneProps> = ({
                   </div>
                 </div>
 
-                <label className="flex items-center gap-2 text-[11px] text-[#605E5C] cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={caseSensitive}
-                    onChange={(e) => setCaseSensitive(e.target.checked)}
-                    className="accent-[#185ABD]"
-                  />
-                  <span>Match exact wording</span>
-                </label>
-
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={onReplaceOne}
-                    disabled={!findQuery.trim()}
+                    disabled={!findQuery.trim() || matchCount === 0}
                     className="flex-1 h-7 rounded border border-[#C8C6C4] bg-white hover:bg-[#F3F2F1] text-xs font-medium disabled:opacity-40 cursor-pointer"
                   >
                     Replace
@@ -192,7 +205,7 @@ export const NavigationPane: React.FC<NavigationPaneProps> = ({
                   <button
                     type="button"
                     onClick={onReplaceAll}
-                    disabled={!findQuery.trim()}
+                    disabled={!findQuery.trim() || matchCount === 0}
                     className="flex-1 h-7 rounded bg-[#185ABD] hover:bg-[#104A9E] text-white text-xs font-medium disabled:opacity-40 cursor-pointer"
                   >
                     Replace All

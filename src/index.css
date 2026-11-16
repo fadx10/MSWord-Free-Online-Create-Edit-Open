@@ -31,6 +31,17 @@
   background: #a19f9d;
 }
 
+/* Non-destructive Find & Replace match highlighting via CSS Custom Highlight API */
+::highlight(word-find-match) {
+  background-color: #fef08a;
+  color: #1b1a19;
+}
+
+::highlight(word-find-active) {
+  background-color: #f59e0b;
+  color: #111111;
+}
+
 /* Editable Word Page Content Styling */
 .word-editor-content {
   outline: none;

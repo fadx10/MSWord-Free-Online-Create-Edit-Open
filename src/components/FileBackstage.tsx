@@ -7,27 +7,38 @@ import {
   FilePlus2,
   FileText,
   FolderOpen,
+  HardDrive,
   Home,
   Info,
   Printer,
+  Save,
+  Settings,
   Trash2,
   Upload,
 } from 'lucide-react';
 import { WORD_TEMPLATES, WordTemplate } from '../data/templates';
 import {
   DocumentRecord,
+  DocumentSettings,
   DocumentStats,
   MARGIN_INCHES,
   PAGE_DIMENSIONS_INCHES,
 } from '../types/word';
 
-export type BackstageSection = 'home' | 'new' | 'open' | 'info' | 'export';
+export type BackstageSection = 'home' | 'new' | 'open' | 'info' | 'export' | 'options';
 
 interface FileBackstageProps {
   initialSection?: BackstageSection;
   activeDoc: DocumentRecord;
   stats: DocumentStats;
   recentDocs: DocumentRecord[];
+  autoSaveEnabled: boolean;
+  lastSavedText: string;
+  authorName: string;
+  onToggleAutoSave: (enabled: boolean) => void;
+  onManualSaveLocal: () => void;
+  onAuthorChange: (name: string) => void;
+  onUpdateSettings: (patch: Partial<DocumentSettings>) => void;
   onClose: () => void;
   onCreateFromTemplate: (tpl: WordTemplate) => void;
   onOpenLocalFile: (file: File) => void;
@@ -45,6 +56,13 @@ export const FileBackstage: React.FC<FileBackstageProps> = ({
   activeDoc,
   stats,
   recentDocs,
+  autoSaveEnabled,
+  lastSavedText,
+  authorName,
+  onToggleAutoSave,
+  onManualSaveLocal,
+  onAuthorChange,
+  onUpdateSettings,
   onClose,
   onCreateFromTemplate,
   onOpenLocalFile,
@@ -126,6 +144,25 @@ export const FileBackstage: React.FC<FileBackstageProps> = ({
             >
               <Printer className="w-4 h-4" />
               <span>Print / PDF</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSection('options')}
+              className={`px-5 py-3 text-left text-xs font-medium flex items-center justify-between transition-colors cursor-pointer ${
+                section === 'options' ? 'bg-[#104A9E] font-semibold' : 'hover:bg-white/10'
+              }`}
+            >
+              <span className="flex items-center gap-3">
+                <Settings className="w-4 h-4" />
+                <span>Options</span>
+              </span>
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  autoSaveEnabled ? 'bg-[#86EFAC]' : 'bg-[#FCD34D]'
+                }`}
+                title={autoSaveEnabled ? 'Auto-Save is active' : 'Auto-Save is off'}
+              />
             </button>
           </nav>
         </div>
@@ -461,6 +498,129 @@ export const FileBackstage: React.FC<FileBackstageProps> = ({
                   </div>
                 </div>
               </button>
+            </div>
+          </div>
+        )}
+
+        {section === 'options' && (
+          <div className="max-w-2xl space-y-6">
+            <div>
+              <h1 className="text-2xl font-semibold text-[#242424]">Word Options</h1>
+              <p className="text-xs text-[#605E5C] mt-1">
+                Configure automatic local storage saving, author identity, and workspace display preferences.
+              </p>
+            </div>
+
+            {/* Save & Auto-Save Section */}
+            <div className="bg-white border border-[#E1DFDD] rounded p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-[#EDEBE9] pb-3">
+                <div className="flex items-center gap-2">
+                  <HardDrive className="w-4 h-4 text-[#185ABD]" />
+                  <h2 className="text-sm font-semibold text-[#242424]">Save &amp; Browser Storage</h2>
+                </div>
+                <span
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[11px] font-semibold border ${
+                    autoSaveEnabled
+                      ? 'bg-[#ECFDF3] text-[#107C41] border-[#BBF7D0]'
+                      : 'bg-[#FFFBEB] text-[#92400E] border-[#FDE68A]'
+                  }`}
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      autoSaveEnabled ? 'bg-[#107C41]' : 'bg-[#D97706]'
+                    }`}
+                  />
+                  <span>{autoSaveEnabled ? 'Auto-Save Active' : 'Auto-Save Off'}</span>
+                </span>
+              </div>
+
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1">
+                  <label
+                    htmlFor="options-autosave-toggle"
+                    className="text-xs font-semibold text-[#242424] cursor-pointer block"
+                  >
+                    Automatically save documents to local storage
+                  </label>
+                  <p className="text-xs text-[#605E5C] leading-relaxed">
+                    When enabled, edits to your document content, header, and footer are saved automatically to browser local storage after a short pause. Turn this off if you prefer manual saving or ephemeral editing.
+                  </p>
+                </div>
+
+                <button
+                  id="options-autosave-toggle"
+                  type="button"
+                  role="switch"
+                  aria-checked={autoSaveEnabled}
+                  onClick={() => onToggleAutoSave(!autoSaveEnabled)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#185ABD]/40 ${
+                    autoSaveEnabled ? 'bg-[#185ABD]' : 'bg-[#C8C6C4]'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                      autoSaveEnabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="pt-3 border-t border-[#EDEBE9] flex flex-wrap items-center justify-between gap-3">
+                <div className="text-xs text-[#605E5C]">
+                  Current status:{' '}
+                  <span className="font-semibold text-[#242424]">{lastSavedText}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={onManualSaveLocal}
+                  className="px-3 py-1.5 rounded border border-[#C8C6C4] bg-white hover:bg-[#F3F2F1] text-xs font-medium text-[#242424] flex items-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <Save className="w-3.5 h-3.5 text-[#185ABD]" />
+                  <span>Save Snapshot Now</span>
+                </button>
+              </div>
+            </div>
+
+            {/* General & Display Preferences */}
+            <div className="bg-white border border-[#E1DFDD] rounded p-5 space-y-4">
+              <h2 className="text-sm font-semibold text-[#242424] border-b border-[#EDEBE9] pb-2">
+                General &amp; Display
+              </h2>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-[#605E5C] mb-1">
+                  User / Author Name
+                </label>
+                <input
+                  type="text"
+                  value={authorName}
+                  onChange={(e) => onAuthorChange(e.target.value)}
+                  placeholder="Word User"
+                  className="w-full max-w-xs h-8 px-3 text-xs border border-[#C8C6C4] rounded focus:border-[#185ABD] outline-none"
+                />
+              </div>
+
+              <div className="space-y-2.5 pt-1">
+                <label className="flex items-center gap-2.5 text-xs text-[#242424] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={activeDoc.settings.showRuler}
+                    onChange={(e) => onUpdateSettings({ showRuler: e.target.checked })}
+                    className="accent-[#185ABD]"
+                  />
+                  <span>Show horizontal and vertical page rulers in Print Layout</span>
+                </label>
+
+                <label className="flex items-center gap-2.5 text-xs text-[#242424] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={activeDoc.settings.showMarginGuides}
+                    onChange={(e) => onUpdateSettings({ showMarginGuides: e.target.checked })}
+                    className="accent-[#185ABD]"
+                  />
+                  <span>Show subtle margin crop marks on page corners</span>
+                </label>
+              </div>
             </div>
           </div>
         )}

@@ -12,7 +12,7 @@ import {
   WatermarkDialog,
   WordCountDialog,
 } from './components/Dialogs';
-import { EditorCanvas } from './components/EditorCanvas';
+import { EditorCanvas, SearchHighlightRect } from './components/EditorCanvas';
 import { BackstageSection, FileBackstage } from './components/FileBackstage';
 import { NavigationPane } from './components/NavigationPane';
 import { ActiveFormattingState, Ribbon } from './components/Ribbon';
@@ -44,11 +44,13 @@ import {
   importFileToHtml,
 } from './utils/docxEngine';
 import {
+  applySearchHighlights,
   buildTableHtml,
   buildTableOfContentsHtml,
   computeDocumentStats,
   computePaginationMetrics,
   extractHeadingOutline,
+  findSearchMatchRanges,
   runQuickProofingCheck,
   SpellingIssue,
 } from './utils/editorHelpers';
@@ -61,6 +63,17 @@ import {
 
 const STORAGE_RECENT_KEY = 'word_online_recent_docs_v1';
 const STORAGE_ACTIVE_ID_KEY = 'word_online_active_id_v1';
+const STORAGE_AUTOSAVE_KEY = 'word_online_autosave_enabled_v1';
+
+function loadAutoSavePreference(): boolean {
+  try {
+    const val = localStorage.getItem(STORAGE_AUTOSAVE_KEY);
+    if (val === 'false') return false;
+  } catch {
+    // Ignore storage access errors
+  }
+  return true;
+}
 
 function createInitialDocument(): DocumentRecord {
   return {
@@ -102,15 +115,19 @@ function loadStoredDocuments(): { active: DocumentRecord; recent: DocumentRecord
 
 export default function App() {
   const initialStore = useMemo(() => loadStoredDocuments(), []);
+  const initialAutoSave = useMemo(() => loadAutoSavePreference(), []);
   const [activeDoc, setActiveDoc] = useState<DocumentRecord>(initialStore.active);
   const [recentDocs, setRecentDocs] = useState<DocumentRecord[]>(initialStore.recent);
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState<boolean>(initialAutoSave);
 
   const [activeTab, setActiveTab] = useState<RibbonTab>('Home');
   const [ribbonCollapsed, setRibbonCollapsed] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('print');
   const [zoom, setZoom] = useState(100);
   const [authorName, setAuthorName] = useState('Word User');
-  const [lastSavedText, setLastSavedText] = useState('Saved locally');
+  const [lastSavedText, setLastSavedText] = useState(
+    initialAutoSave ? 'Saved locally' : 'Auto-save paused'
+  );
 
   // Backstage & side panes
   const [backstageOpen, setBackstageOpen] = useState(false);
@@ -153,6 +170,10 @@ export default function App() {
   // Find & Replace
   const [findQuery, setFindQuery] = useState('');
   const [replaceQuery, setReplaceQuery] = useState('');
+  const [findCaseSensitive, setFindCaseSensitive] = useState(false);
+  const [activeMatchIndex, setActiveMatchIndex] = useState(0);
+  const [findMatchCount, setFindMatchCount] = useState(0);
+  const [fallbackHighlightRects, setFallbackHighlightRects] = useState<SearchHighlightRect[]>([]);
 
   // Stats, Outline & Formatting State
   const [stats, setStats] = useState<DocumentStats>({
@@ -262,7 +283,57 @@ export default function App() {
     setStats((prev) => (prev.pages === totalPages ? prev : { ...prev, pages: totalPages }));
   }, [getPrintablePageHeightPx]);
 
-  // Persist active & recent docs to localStorage and notify on debounced content changes
+  const persistDocumentToLocalStorage = useCallback(
+    (doc: DocumentRecord, notifyToast: boolean) => {
+      try {
+        setRecentDocs((prev) => {
+          const filtered = prev.filter((d) => d.id !== doc.id);
+          const updated = [doc, ...filtered].slice(0, 12);
+          localStorage.setItem(STORAGE_RECENT_KEY, JSON.stringify(updated));
+          localStorage.setItem(STORAGE_ACTIVE_ID_KEY, doc.id);
+          return updated;
+        });
+        setLastSavedText('Saved locally');
+        lastSavedContentRef.current = {
+          id: doc.id,
+          contentHtml: doc.contentHtml,
+          headerText: doc.headerText,
+          footerText: doc.footerText,
+        };
+        if (notifyToast) {
+          showSaveToast();
+        }
+      } catch {
+        // Ignore storage quota issues
+      }
+    },
+    [showSaveToast]
+  );
+
+  const handleToggleAutoSave = useCallback(
+    (enabled: boolean) => {
+      setAutoSaveEnabled(enabled);
+      try {
+        localStorage.setItem(STORAGE_AUTOSAVE_KEY, String(enabled));
+      } catch {
+        // Ignore storage access issues
+      }
+      if (enabled) {
+        persistDocumentToLocalStorage(activeDoc, false);
+        showToast('Auto-save to local storage enabled');
+      } else {
+        setLastSavedText('Auto-save paused');
+        showToast('Auto-save to local storage disabled');
+      }
+    },
+    [activeDoc, persistDocumentToLocalStorage, showToast]
+  );
+
+  const handleManualSaveLocal = useCallback(() => {
+    persistDocumentToLocalStorage(activeDoc, true);
+  }, [activeDoc, persistDocumentToLocalStorage]);
+
+  // Persist active & recent docs to localStorage when auto-save is enabled
   useEffect(() => {
     const contentChanged =
       lastSavedContentRef.current.id === activeDoc.id &&
@@ -270,31 +341,18 @@ export default function App() {
         lastSavedContentRef.current.headerText !== activeDoc.headerText ||
         lastSavedContentRef.current.footerText !== activeDoc.footerText);
 
-    const timer = window.setTimeout(() => {
-      try {
-        setRecentDocs((prev) => {
-          const filtered = prev.filter((d) => d.id !== activeDoc.id);
-          const updated = [activeDoc, ...filtered].slice(0, 12);
-          localStorage.setItem(STORAGE_RECENT_KEY, JSON.stringify(updated));
-          localStorage.setItem(STORAGE_ACTIVE_ID_KEY, activeDoc.id);
-          return updated;
-        });
-        setLastSavedText('Saved locally');
-        lastSavedContentRef.current = {
-          id: activeDoc.id,
-          contentHtml: activeDoc.contentHtml,
-          headerText: activeDoc.headerText,
-          footerText: activeDoc.footerText,
-        };
-        if (contentChanged) {
-          showSaveToast();
-        }
-      } catch {
-        // Ignore storage quota issues
+    if (!autoSaveEnabled) {
+      if (contentChanged) {
+        setLastSavedText('Unsaved changes');
       }
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      persistDocumentToLocalStorage(activeDoc, contentChanged);
     }, 800);
     return () => window.clearTimeout(timer);
-  }, [activeDoc, showSaveToast]);
+  }, [activeDoc, autoSaveEnabled, persistDocumentToLocalStorage]);
 
   const refreshEditorDerivedState = useCallback(() => {
     const el = editorRef.current;
@@ -308,7 +366,7 @@ export default function App() {
     setStats(computeDocumentStats(el, printableH));
     setCurrentPage(pagination.currentPage);
     setHeadings(extractHeadingOutline(el));
-    setLastSavedText('Saving...');
+    setLastSavedText(autoSaveEnabled ? 'Saving...' : 'Unsaved changes');
 
     setActiveDoc((prev) => ({
       ...prev,
@@ -321,7 +379,7 @@ export default function App() {
       return [...prev.slice(-49), html];
     });
     setRedoStack([]);
-  }, [getPrintablePageHeightPx]);
+  }, [autoSaveEnabled, getPrintablePageHeightPx]);
 
   const saveSelection = useCallback(() => {
     const sel = window.getSelection();
@@ -903,48 +961,159 @@ export default function App() {
   );
 
   // Find & Replace
-  const findMatchCount = useMemo(() => {
-    if (!findQuery.trim()) return 0;
-    const text = editorRef.current?.innerText ?? '';
-    const escaped = findQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const matches = text.match(new RegExp(escaped, 'gi'));
-    return matches ? matches.length : 0;
-  }, [findQuery, activeDoc.contentHtml]);
+  const isFindReplaceActive =
+    activeDoc.settings.showNavigationPane &&
+    viewMode !== 'read' &&
+    (navSubTab === 'find' || navSubTab === 'replace') &&
+    findQuery.trim().length > 0;
+
+  const scrollRangeIntoView = useCallback((range: Range) => {
+    const scrollContainer = editorRef.current?.closest('.print-only-container') as HTMLElement | null;
+    const rect = range.getBoundingClientRect();
+    if (scrollContainer && rect.height > 0) {
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const targetTop =
+        scrollContainer.scrollTop +
+        (rect.top - containerRect.top) -
+        containerRect.height / 2 +
+        rect.height / 2;
+      scrollContainer.scrollTo({
+        top: Math.max(0, targetTop),
+        behavior: 'smooth',
+      });
+      return;
+    }
+    const anchorEl =
+      range.startContainer.nodeType === Node.TEXT_NODE
+        ? range.startContainer.parentElement
+        : (range.startContainer as HTMLElement | null);
+    anchorEl?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+  }, []);
+
+  // Reset active match index when query, case sensitivity, or document changes
+  useEffect(() => {
+    setActiveMatchIndex(0);
+  }, [findQuery, findCaseSensitive, activeDoc.id]);
+
+  // Highlight all matching occurrences non-destructively whenever Find & Replace is active
+  useEffect(() => {
+    const editorEl = editorRef.current;
+    if (!isFindReplaceActive || !editorEl) {
+      applySearchHighlights([], 0);
+      setFindMatchCount(0);
+      setFallbackHighlightRects((prev) => (prev.length === 0 ? prev : []));
+      return;
+    }
+
+    const ranges = findSearchMatchRanges(editorEl, findQuery, findCaseSensitive);
+    setFindMatchCount(ranges.length);
+
+    if (ranges.length === 0) {
+      applySearchHighlights([], 0);
+      setFallbackHighlightRects((prev) => (prev.length === 0 ? prev : []));
+      return;
+    }
+
+    const clampedIdx = Math.max(0, Math.min(activeMatchIndex, ranges.length - 1));
+    if (clampedIdx !== activeMatchIndex) {
+      setActiveMatchIndex(clampedIdx);
+    }
+
+    const nativeSupported = applySearchHighlights(ranges, clampedIdx);
+    if (nativeSupported) {
+      setFallbackHighlightRects((prev) => (prev.length === 0 ? prev : []));
+    } else {
+      const editorRect = editorEl.getBoundingClientRect();
+      const scale = zoom / 100 || 1;
+      const rects: SearchHighlightRect[] = [];
+      ranges.forEach((range, idx) => {
+        const clientRects = Array.from(range.getClientRects());
+        clientRects.forEach((r) => {
+          if (r.width <= 0 || r.height <= 0) return;
+          rects.push({
+            top: (r.top - editorRect.top) / scale,
+            left: (r.left - editorRect.left) / scale,
+            width: r.width / scale,
+            height: r.height / scale,
+            active: idx === clampedIdx,
+          });
+        });
+      });
+      setFallbackHighlightRects(rects);
+    }
+  }, [
+    isFindReplaceActive,
+    findQuery,
+    findCaseSensitive,
+    activeDoc.contentHtml,
+    activeDoc.id,
+    activeMatchIndex,
+    zoom,
+    activeDoc.settings.columns,
+    activeDoc.settings.pageSize,
+    activeDoc.settings.margins,
+    activeDoc.settings.orientation,
+    viewMode,
+  ]);
+
+  // Ensure highlights are cleared on unmount
+  useEffect(() => {
+    return () => {
+      applySearchHighlights([], 0);
+    };
+  }, []);
 
   const handleFindNext = useCallback(
     (direction: 1 | -1) => {
-      if (!findQuery.trim()) return;
-      const win = window as Window & {
-        find?: (
-          str: string,
-          caseSensitive?: boolean,
-          backwards?: boolean,
-          wrapAround?: boolean
-        ) => boolean;
-      };
-      if (typeof win.find === 'function') {
-        win.find(findQuery, false, direction === -1, true);
-      }
+      if (!findQuery.trim() || !editorRef.current) return;
+      const ranges = findSearchMatchRanges(editorRef.current, findQuery, findCaseSensitive);
+      if (ranges.length === 0) return;
+
+      const nextIndex = (activeMatchIndex + direction + ranges.length) % ranges.length;
+      setActiveMatchIndex(nextIndex);
+      scrollRangeIntoView(ranges[nextIndex]);
     },
-    [findQuery]
+    [activeMatchIndex, findCaseSensitive, findQuery, scrollRangeIntoView]
   );
 
   const handleReplaceOne = useCallback(() => {
     if (!findQuery.trim() || !editorRef.current) return;
-    const sel = window.getSelection();
-    if (sel && sel.toString().toLowerCase() === findQuery.toLowerCase()) {
-      document.execCommand('insertText', false, replaceQuery);
-      refreshEditorDerivedState();
-      handleFindNext(1);
+    const ranges = findSearchMatchRanges(editorRef.current, findQuery, findCaseSensitive);
+    if (ranges.length === 0) return;
+
+    const targetIndex = Math.max(0, Math.min(activeMatchIndex, ranges.length - 1));
+    const targetRange = ranges[targetIndex];
+
+    targetRange.deleteContents();
+    targetRange.insertNode(document.createTextNode(replaceQuery));
+    editorRef.current.normalize();
+
+    refreshEditorDerivedState();
+
+    const remainingCount = ranges.length - 1;
+    if (remainingCount <= 0) {
+      setActiveMatchIndex(0);
     } else {
-      handleFindNext(1);
+      const nextIndex = targetIndex >= remainingCount ? 0 : targetIndex;
+      setActiveMatchIndex(nextIndex);
+      const nextRanges = findSearchMatchRanges(editorRef.current, findQuery, findCaseSensitive);
+      if (nextRanges[nextIndex]) {
+        scrollRangeIntoView(nextRanges[nextIndex]);
+      }
     }
-  }, [findQuery, handleFindNext, refreshEditorDerivedState, replaceQuery]);
+  }, [
+    activeMatchIndex,
+    findCaseSensitive,
+    findQuery,
+    refreshEditorDerivedState,
+    replaceQuery,
+    scrollRangeIntoView,
+  ]);
 
   const handleReplaceAll = useCallback(() => {
     if (!findQuery.trim() || !editorRef.current) return;
     const escaped = findQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(escaped, 'gi');
+    const regex = new RegExp(escaped, findCaseSensitive ? 'g' : 'gi');
     const walker = document.createTreeWalker(editorRef.current, NodeFilter.SHOW_TEXT);
     const nodes: Text[] = [];
     let current = walker.nextNode();
@@ -955,15 +1124,18 @@ export default function App() {
     let replaced = 0;
     nodes.forEach((node) => {
       if (node.nodeValue && regex.test(node.nodeValue)) {
+        regex.lastIndex = 0;
         node.nodeValue = node.nodeValue.replace(regex, () => {
           replaced++;
           return replaceQuery;
         });
       }
     });
+    editorRef.current.normalize();
+    setActiveMatchIndex(0);
     refreshEditorDerivedState();
     showToast(`Replaced ${replaced} occurrence${replaced === 1 ? '' : 's'}`);
-  }, [findQuery, refreshEditorDerivedState, replaceQuery, showToast]);
+  }, [findCaseSensitive, findQuery, refreshEditorDerivedState, replaceQuery, showToast]);
 
   // Read Aloud
   const handleToggleReadAloud = useCallback(
@@ -1161,6 +1333,15 @@ export default function App() {
         category: 'Draw',
         action: () => setModal('drawPad'),
       },
+      {
+        id: 'word-options',
+        label: 'Word Options (Auto-Save & Preferences)',
+        category: 'File',
+        action: () => {
+          setBackstageSection('options');
+          setBackstageOpen(true);
+        },
+      },
     ],
     [
       activeDoc.settings.showRuler,
@@ -1168,6 +1349,7 @@ export default function App() {
       handleToggleReadAloud,
       insertHtmlAtCursor,
       isReadingAloud,
+      showToast,
       updateSettings,
     ]
   );
@@ -1208,6 +1390,11 @@ export default function App() {
           onToggleRibbon={() => setRibbonCollapsed((c) => !c)}
           commands={quickCommands}
           lastSavedText={lastSavedText}
+          autoSaveEnabled={autoSaveEnabled}
+          onOpenOptions={() => {
+            setBackstageSection('options');
+            setBackstageOpen(true);
+          }}
         />
       )}
 
@@ -1404,7 +1591,10 @@ export default function App() {
             onFindQueryChange={setFindQuery}
             replaceQuery={replaceQuery}
             onReplaceQueryChange={setReplaceQuery}
+            caseSensitive={findCaseSensitive}
+            onCaseSensitiveChange={setFindCaseSensitive}
             matchCount={findMatchCount}
+            activeMatchIndex={activeMatchIndex}
             onFindNext={handleFindNext}
             onReplaceOne={handleReplaceOne}
             onReplaceAll={handleReplaceAll}
@@ -1429,6 +1619,7 @@ export default function App() {
           totalPages={stats.pages}
           headerText={activeDoc.headerText}
           footerText={activeDoc.footerText}
+          searchHighlightRects={fallbackHighlightRects}
           onHeaderChange={(val) => setActiveDoc((prev) => ({ ...prev, headerText: val }))}
           onFooterChange={(val) => setActiveDoc((prev) => ({ ...prev, footerText: val }))}
           onInput={refreshEditorDerivedState}
@@ -1535,6 +1726,11 @@ export default function App() {
         zoom={zoom}
         onZoomChange={setZoom}
         onOpenWordCount={() => setModal('wordCount')}
+        autoSaveEnabled={autoSaveEnabled}
+        onOpenOptions={() => {
+          setBackstageSection('options');
+          setBackstageOpen(true);
+        }}
       />
 
       {/* Right-Click Context Menu */}
@@ -1576,6 +1772,13 @@ export default function App() {
           activeDoc={activeDoc}
           stats={stats}
           recentDocs={recentDocs}
+          autoSaveEnabled={autoSaveEnabled}
+          lastSavedText={lastSavedText}
+          authorName={authorName}
+          onToggleAutoSave={handleToggleAutoSave}
+          onManualSaveLocal={handleManualSaveLocal}
+          onAuthorChange={setAuthorName}
+          onUpdateSettings={updateSettings}
           onClose={() => setBackstageOpen(false)}
           onCreateFromTemplate={handleCreateFromTemplate}
           onOpenLocalFile={handleOpenLocalFile}

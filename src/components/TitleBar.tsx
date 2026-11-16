@@ -38,6 +38,8 @@ interface TitleBarProps {
   onToggleRibbon: () => void;
   commands: QuickCommandItem[];
   lastSavedText: string;
+  autoSaveEnabled: boolean;
+  onOpenOptions: () => void;
 }
 
 export const TitleBar: React.FC<TitleBarProps> = ({
@@ -57,6 +59,8 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   onToggleRibbon,
   commands,
   lastSavedText,
+  autoSaveEnabled,
+  onOpenOptions,
 }) => {
   const [editingTitle, setEditingTitle] = useState(false);
   const [draftTitle, setDraftTitle] = useState(title);
@@ -255,11 +259,28 @@ export const TitleBar: React.FC<TitleBarProps> = ({
         </div>
       </div>
 
-      {/* Right: Saved status, Author, Download .docx, Ribbon Collapse */}
+      {/* Right: Auto-Save Indicator, Author, Download .docx, Ribbon Collapse */}
       <div className="flex items-center gap-1.5 shrink-0">
-        <span className="hidden lg:inline text-[11px] text-white/80 mr-1 whitespace-nowrap">
-          {lastSavedText}
-        </span>
+        <button
+          type="button"
+          onClick={onOpenOptions}
+          title={
+            autoSaveEnabled
+              ? `Auto-Save to local storage is ON (${lastSavedText}). Click to open Options.`
+              : 'Auto-Save to local storage is OFF. Click to open Options.'
+          }
+          className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded bg-[#104A9E]/75 hover:bg-[#104A9E] border border-white/15 text-[11px] text-white/95 mr-1 whitespace-nowrap cursor-pointer transition-colors"
+        >
+          <span
+            className={`w-2 h-2 rounded-full shrink-0 ${
+              autoSaveEnabled ? 'bg-[#86EFAC]' : 'bg-[#FCD34D]'
+            }`}
+          />
+          <span className="font-medium">
+            {autoSaveEnabled ? 'Auto-Save On' : 'Auto-Save Off'}
+          </span>
+          <span className="hidden lg:inline text-white/75">· {lastSavedText}</span>
+        </button>
 
         {editingAuthor ? (
           <input

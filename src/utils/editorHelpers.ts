@@ -264,3 +264,74 @@ export function runQuickProofingCheck(text: string): SpellingIssue[] {
 
   return issues;
 }
+
+export function findSearchMatchRanges(
+  editorEl: HTMLElement | null,
+  query: string,
+  caseSensitive: boolean
+): Range[] {
+  if (!editorEl || !query) return [];
+  const needle = caseSensitive ? query : query.toLowerCase();
+  if (!needle) return [];
+
+  const ranges: Range[] = [];
+  const walker = document.createTreeWalker(editorEl, NodeFilter.SHOW_TEXT);
+  let current = walker.nextNode();
+
+  while (current) {
+    const textNode = current as Text;
+    const raw = textNode.nodeValue ?? '';
+    if (raw.length > 0) {
+      const haystack = caseSensitive ? raw : raw.toLowerCase();
+      let startIndex = 0;
+      while (startIndex <= haystack.length - needle.length) {
+        const foundAt = haystack.indexOf(needle, startIndex);
+        if (foundAt === -1) break;
+        const range = document.createRange();
+        range.setStart(textNode, foundAt);
+        range.setEnd(textNode, foundAt + needle.length);
+        ranges.push(range);
+        startIndex = foundAt + needle.length;
+      }
+    }
+    current = walker.nextNode();
+  }
+
+  return ranges;
+}
+
+interface HighlightRegistryLike {
+  set: (name: string, highlight: unknown) => void;
+  delete: (name: string) => void;
+}
+
+export function applySearchHighlights(
+  ranges: Range[],
+  activeIndex: number
+): boolean {
+  const cssObj = typeof CSS !== 'undefined' ? (CSS as unknown as { highlights?: HighlightRegistryLike }) : undefined;
+  const HighlightCtor = (globalThis as unknown as { Highlight?: new (...ranges: Range[]) => unknown }).Highlight;
+
+  if (!cssObj?.highlights || !HighlightCtor) {
+    return false;
+  }
+
+  if (ranges.length === 0) {
+    cssObj.highlights.delete('word-find-match');
+    cssObj.highlights.delete('word-find-active');
+    return true;
+  }
+
+  const clampedActive = Math.max(0, Math.min(activeIndex, ranges.length - 1));
+  const inactiveRanges = ranges.filter((_, idx) => idx !== clampedActive);
+
+  if (inactiveRanges.length > 0) {
+    cssObj.highlights.set('word-find-match', new HighlightCtor(...inactiveRanges));
+  } else {
+    cssObj.highlights.delete('word-find-match');
+  }
+
+  cssObj.highlights.set('word-find-active', new HighlightCtor(ranges[clampedActive]));
+  return true;
+}
+
