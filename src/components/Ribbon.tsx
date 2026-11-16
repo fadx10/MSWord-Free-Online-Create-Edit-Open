@@ -82,6 +82,15 @@ export interface ActiveFormattingState {
   fontName: string;
   fontSizePt: string;
   blockTag: string;
+  leftIndentIn: number;
+  firstLineIndent: boolean;
+}
+
+export interface TableDesignState {
+  hasSelectedTable: boolean;
+  bordersEnabled: boolean;
+  borderColor: string;
+  borderWidthPx: number;
 }
 
 interface RibbonProps {
@@ -90,6 +99,7 @@ interface RibbonProps {
   onOpenFileBackstage: () => void;
   collapsed: boolean;
   formatting: ActiveFormattingState;
+  tableDesign: TableDesignState;
   settings: DocumentSettings;
   viewMode: ViewMode;
   zoom: number;
@@ -106,6 +116,10 @@ interface RibbonProps {
   onChangeCase: (mode: 'upper' | 'lower' | 'title') => void;
   onClearFormatting: () => void;
   onApplyStyle: (style: 'p' | 'h1' | 'h2' | 'h3' | 'title' | 'subtitle' | 'blockquote') => void;
+  onAdjustLeftIndent: (deltaInches: number) => void;
+  onSetLeftIndent: (inches: number) => void;
+  onToggleFirstLineIndent: () => void;
+  onUpdateTableBorders: (patch: { enabled?: boolean; color?: string; widthPx?: number }) => void;
   onPaste: () => void;
   onCut: () => void;
   onCopy: () => void;
@@ -151,6 +165,24 @@ const TABS: RibbonTab[] = [
   'View',
 ];
 
+const TABLE_BORDER_COLORS = [
+  { label: 'Default Gray', hex: '#8A8886' },
+  { label: 'Black', hex: '#1B1A19' },
+  { label: 'Word Blue', hex: '#185ABD' },
+  { label: 'Emerald', hex: '#107C41' },
+  { label: 'Crimson', hex: '#A4262C' },
+  { label: 'Amber', hex: '#C27803' },
+];
+
+const TABLE_BORDER_WIDTHS = [
+  { label: '0.5 px (Hairline)', value: 0.5 },
+  { label: '1 px (Thin)', value: 1 },
+  { label: '1.5 px (Regular)', value: 1.5 },
+  { label: '2 px (Medium)', value: 2 },
+  { label: '3 px (Thick)', value: 3 },
+  { label: '4 px (Heavy)', value: 4 },
+];
+
 const FONT_FAMILIES = [
   { label: 'Calibri (Body)', value: 'Calibri, "Plus Jakarta Sans", sans-serif' },
   { label: 'Plus Jakarta Sans', value: '"Plus Jakarta Sans", sans-serif' },
@@ -192,7 +224,7 @@ const HIGHLIGHT_COLORS = [
 const SYMBOLS = ['©', '®', '™', '€', '£', '¥', '§', '°', '±', '×', '÷', '≠', '≤', '≥', '→', '✓', '★', '•'];
 
 const RibbonGroup: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
-  <div className="flex flex-col justify-between px-2.5 py-1 border-r border-[#E1DFDD] last:border-r-0 shrink-0 h-[84px]">
+  <div className="flex flex-col justify-between px-2.5 py-1 border-r border-[#E1DFDD] last:border-r-0 shrink-0 min-h-[96px]">
     <div className="flex items-center gap-1 flex-1">{children}</div>
     <div className="text-[10px] text-[#605E5C] text-center leading-none pt-0.5 whitespace-nowrap">
       {label}
@@ -245,12 +277,31 @@ const LargeBtn: React.FC<{
   </button>
 );
 
+const FirstLineIndentIcon: React.FC<{ className?: string }> = ({ className = 'w-3.5 h-3.5' }) => (
+  <svg
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    aria-hidden="true"
+  >
+    <path d="M2 3.5h2.5M3.5 2.2 4.8 3.5 3.5 4.8" />
+    <path d="M7 3.5h7M2 7.5h12M2 11.5h10" />
+  </svg>
+);
+
+const LEFT_INDENT_PRESETS = [0, 0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3];
+
 export const Ribbon: React.FC<RibbonProps> = ({
   activeTab,
   onSelectTab,
   onOpenFileBackstage,
   collapsed,
   formatting,
+  tableDesign,
   settings,
   viewMode,
   zoom,
@@ -267,6 +318,10 @@ export const Ribbon: React.FC<RibbonProps> = ({
   onChangeCase,
   onClearFormatting,
   onApplyStyle,
+  onAdjustLeftIndent,
+  onSetLeftIndent,
+  onToggleFirstLineIndent,
+  onUpdateTableBorders,
   onPaste,
   onCut,
   onCopy,
@@ -360,6 +415,26 @@ export const Ribbon: React.FC<RibbonProps> = ({
               </button>
             );
           })}
+
+          {(tableDesign.hasSelectedTable || activeTab === 'Table Design') && (
+            <button
+              type="button"
+              onClick={() => {
+                onSelectTab('Table Design');
+                setOpenMenu(null);
+              }}
+              className={`relative h-8 px-2.5 ml-1 text-xs transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                activeTab === 'Table Design' && !collapsed
+                  ? 'font-semibold text-[#107C41] bg-white rounded-t border-x border-t border-[#E1DFDD]'
+                  : 'font-semibold text-[#107C41] bg-[#E8F5EE] hover:bg-[#D5ECE0] rounded-t border-x border-t border-[#C6E6D4]'
+              }`}
+            >
+              Table Design
+              {activeTab === 'Table Design' && !collapsed && (
+                <span className="absolute left-2 right-2 bottom-0 h-[2px] bg-[#107C41] rounded-full" />
+              )}
+            </button>
+          )}
         </div>
 
         {/* Right: Comments toggle button (just like screenshot) */}
@@ -386,7 +461,7 @@ export const Ribbon: React.FC<RibbonProps> = ({
 
       {/* Ribbon Content Area */}
       {!collapsed && (
-        <div className="bg-white/95 border-b border-[#E1DFDD] px-2 py-1 overflow-x-auto overflow-y-visible">
+        <div className="bg-white/95 border-b border-[#E1DFDD] min-h-[112px] px-2 py-2 flex items-center overflow-x-auto overflow-y-visible">
           <div className="flex items-stretch min-w-max">
             {activeTab === 'Home' && (
               <>
@@ -683,11 +758,24 @@ export const Ribbon: React.FC<RibbonProps> = ({
 
                       <div className="w-px h-4 bg-[#E1DFDD] mx-1" />
 
-                      <IconBtn onClick={() => onExecCommand('outdent')} title="Decrease Indent">
+                      <IconBtn
+                        onClick={() => onAdjustLeftIndent(-0.5)}
+                        title="Decrease Left Indent (-0.5 in)"
+                      >
                         <IndentDecrease className="w-3.5 h-3.5" />
                       </IconBtn>
-                      <IconBtn onClick={() => onExecCommand('indent')} title="Increase Indent">
+                      <IconBtn
+                        onClick={() => onAdjustLeftIndent(0.5)}
+                        title="Increase Left Indent (+0.5 in)"
+                      >
                         <IndentIncrease className="w-3.5 h-3.5" />
+                      </IconBtn>
+                      <IconBtn
+                        active={formatting.firstLineIndent}
+                        onClick={onToggleFirstLineIndent}
+                        title="Toggle First Line Indent (0.5 in)"
+                      >
+                        <FirstLineIndentIcon className="w-3.5 h-3.5" />
                       </IconBtn>
 
                       <div className="relative">
@@ -1191,6 +1279,111 @@ export const Ribbon: React.FC<RibbonProps> = ({
                     )}
                   </div>
                 </RibbonGroup>
+
+                <RibbonGroup label="Table Design">
+                  <div
+                    className={`flex items-center gap-2.5 ${
+                      !tableDesign.hasSelectedTable ? 'opacity-50 pointer-events-none' : ''
+                    }`}
+                    title={
+                      tableDesign.hasSelectedTable
+                        ? 'Style borders for the selected table'
+                        : 'Click inside a table to enable Table Design border controls'
+                    }
+                  >
+                    <LargeBtn
+                      active={tableDesign.bordersEnabled}
+                      onClick={() =>
+                        onUpdateTableBorders({ enabled: !tableDesign.bordersEnabled })
+                      }
+                      title={
+                        tableDesign.bordersEnabled
+                          ? 'Turn off borders for selected table'
+                          : 'Turn on borders for selected table'
+                      }
+                      icon={<TableIcon className="w-5 h-5 text-[#185ABD]" />}
+                      label={tableDesign.bordersEnabled ? 'Borders On' : 'No Borders'}
+                    />
+
+                    <div className="flex flex-col gap-1.5 justify-center">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] text-[#605E5C] w-11">Color:</span>
+                        <div className="flex items-center gap-1">
+                          {TABLE_BORDER_COLORS.map((c) => {
+                            const selected =
+                              tableDesign.borderColor.toUpperCase() === c.hex.toUpperCase();
+                            return (
+                              <button
+                                key={c.hex}
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() =>
+                                  onUpdateTableBorders({ enabled: true, color: c.hex })
+                                }
+                                title={`Border color: ${c.label}`}
+                                className={`w-4 h-4 rounded-sm border cursor-pointer transition-transform hover:scale-110 ${
+                                  selected
+                                    ? 'border-[#185ABD] ring-2 ring-[#185ABD]/40'
+                                    : 'border-[#C8C6C4]'
+                                }`}
+                                style={{ backgroundColor: c.hex }}
+                              />
+                            );
+                          })}
+                          <label
+                            title="Custom Border Color"
+                            className="w-5 h-4 rounded-sm border border-[#C8C6C4] overflow-hidden cursor-pointer flex items-center justify-center bg-white"
+                          >
+                            <input
+                              type="color"
+                              value={tableDesign.borderColor}
+                              onChange={(e) =>
+                                onUpdateTableBorders({
+                                  enabled: true,
+                                  color: e.target.value.toUpperCase(),
+                                })
+                              }
+                              aria-label="Custom table border color"
+                              className="w-6 h-6 -m-1 cursor-pointer border-0 p-0 bg-transparent"
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] text-[#605E5C] w-11">Weight:</span>
+                        <select
+                          value={tableDesign.borderWidthPx}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onChange={(e) =>
+                            onUpdateTableBorders({
+                              enabled: true,
+                              widthPx: Number(e.target.value),
+                            })
+                          }
+                          aria-label="Table border thickness"
+                          title="Border Thickness"
+                          className="h-6 px-1.5 bg-white border border-[#C8C6C4] rounded text-xs tabular-nums outline-none cursor-pointer"
+                        >
+                          {TABLE_BORDER_WIDTHS.map((w) => (
+                            <option key={w.value} value={w.value}>
+                              {w.label}
+                            </option>
+                          ))}
+                        </select>
+                        <span
+                          className="w-8 rounded-full shrink-0"
+                          style={{
+                            height: `${Math.max(1, Math.min(4, tableDesign.borderWidthPx))}px`,
+                            backgroundColor: tableDesign.bordersEnabled
+                              ? tableDesign.borderColor
+                              : '#D2D0CE',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </RibbonGroup>
               </>
             )}
 
@@ -1321,7 +1514,64 @@ export const Ribbon: React.FC<RibbonProps> = ({
                   </div>
                 </RibbonGroup>
 
-                <RibbonGroup label="Paragraph">
+                <RibbonGroup label="Paragraph Indentation">
+                  <div className="flex flex-col gap-1.5 justify-center">
+                    <div className="flex items-center gap-1 text-xs">
+                      <span className="text-[#605E5C] text-[11px] mr-0.5">Left:</span>
+                      <IconBtn
+                        onClick={() => onAdjustLeftIndent(-0.5)}
+                        title="Decrease Left Indentation (-0.50 in)"
+                        className={formatting.leftIndentIn <= 0 ? 'opacity-45' : ''}
+                      >
+                        <IndentDecrease className="w-3.5 h-3.5" />
+                      </IconBtn>
+                      <select
+                        value={formatting.leftIndentIn}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onChange={(e) => onSetLeftIndent(Number(e.target.value))}
+                        title="Left Indentation (inches)"
+                        aria-label="Left Indentation"
+                        className="h-6 px-1.5 bg-white border border-[#C8C6C4] hover:border-[#8A8886] rounded text-xs tabular-nums outline-none cursor-pointer"
+                      >
+                        {!LEFT_INDENT_PRESETS.includes(formatting.leftIndentIn) && (
+                          <option value={formatting.leftIndentIn}>
+                            {formatting.leftIndentIn.toFixed(2)}&quot;
+                          </option>
+                        )}
+                        {LEFT_INDENT_PRESETS.map((val) => (
+                          <option key={val} value={val}>
+                            {val.toFixed(2)}&quot;
+                          </option>
+                        ))}
+                      </select>
+                      <IconBtn
+                        onClick={() => onAdjustLeftIndent(0.5)}
+                        title="Increase Left Indentation (+0.50 in)"
+                      >
+                        <IndentIncrease className="w-3.5 h-3.5" />
+                      </IconBtn>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <IconBtn
+                        active={formatting.firstLineIndent}
+                        onClick={onToggleFirstLineIndent}
+                        title="Toggle First Line Indent (0.50 in) for selected paragraphs"
+                        className="px-2 gap-1.5"
+                      >
+                        <FirstLineIndentIcon className="w-3.5 h-3.5" />
+                        <span className="text-[11px] font-medium">First Line Indent</span>
+                        {formatting.firstLineIndent && (
+                          <span className="text-[10px] font-semibold text-[#0F6CBD] tabular-nums">
+                            0.5&quot;
+                          </span>
+                        )}
+                      </IconBtn>
+                    </div>
+                  </div>
+                </RibbonGroup>
+
+                <RibbonGroup label="Paragraph Spacing">
                   <div className="flex flex-col gap-1 justify-center">
                     <div className="flex items-center gap-1.5 text-xs">
                       <span className="text-[#605E5C] w-14">Spacing:</span>
@@ -1335,16 +1585,6 @@ export const Ribbon: React.FC<RibbonProps> = ({
                         <option value={1.5}>1.5 lines</option>
                         <option value={2.0}>2.0 (Double)</option>
                       </select>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <IconBtn onClick={() => onExecCommand('outdent')} title="Decrease Indent">
-                        <IndentDecrease className="w-3.5 h-3.5 mr-1" />
-                        <span>Outdent</span>
-                      </IconBtn>
-                      <IconBtn onClick={() => onExecCommand('indent')} title="Increase Indent">
-                        <IndentIncrease className="w-3.5 h-3.5 mr-1" />
-                        <span>Indent</span>
-                      </IconBtn>
                     </div>
                   </div>
                 </RibbonGroup>
@@ -1536,6 +1776,118 @@ export const Ribbon: React.FC<RibbonProps> = ({
                     />
                   </div>
                 </RibbonGroup>
+              </>
+            )}
+
+            {activeTab === 'Table Design' && (
+              <>
+                <RibbonGroup label="Table Design">
+                  <div
+                    className={`flex items-center gap-2.5 ${
+                      !tableDesign.hasSelectedTable ? 'opacity-50 pointer-events-none' : ''
+                    }`}
+                  >
+                    <LargeBtn
+                      active={tableDesign.bordersEnabled}
+                      onClick={() =>
+                        onUpdateTableBorders({ enabled: !tableDesign.bordersEnabled })
+                      }
+                      title={
+                        tableDesign.bordersEnabled
+                          ? 'Turn off borders for selected table'
+                          : 'Turn on borders for selected table'
+                      }
+                      icon={<TableIcon className="w-5 h-5 text-[#185ABD]" />}
+                      label={tableDesign.bordersEnabled ? 'Borders On' : 'No Borders'}
+                    />
+
+                    <div className="flex flex-col gap-1.5 justify-center">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] text-[#605E5C] w-11">Color:</span>
+                        <div className="flex items-center gap-1">
+                          {TABLE_BORDER_COLORS.map((c) => {
+                            const selected =
+                              tableDesign.borderColor.toUpperCase() === c.hex.toUpperCase();
+                            return (
+                              <button
+                                key={c.hex}
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() =>
+                                  onUpdateTableBorders({ enabled: true, color: c.hex })
+                                }
+                                title={`Border color: ${c.label}`}
+                                className={`w-4 h-4 rounded-sm border cursor-pointer transition-transform hover:scale-110 ${
+                                  selected
+                                    ? 'border-[#185ABD] ring-2 ring-[#185ABD]/40'
+                                    : 'border-[#C8C6C4]'
+                                }`}
+                                style={{ backgroundColor: c.hex }}
+                              />
+                            );
+                          })}
+                          <label
+                            title="Custom Border Color"
+                            className="w-5 h-4 rounded-sm border border-[#C8C6C4] overflow-hidden cursor-pointer flex items-center justify-center bg-white"
+                          >
+                            <input
+                              type="color"
+                              value={tableDesign.borderColor}
+                              onChange={(e) =>
+                                onUpdateTableBorders({
+                                  enabled: true,
+                                  color: e.target.value.toUpperCase(),
+                                })
+                              }
+                              aria-label="Custom table border color"
+                              className="w-6 h-6 -m-1 cursor-pointer border-0 p-0 bg-transparent"
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] text-[#605E5C] w-11">Weight:</span>
+                        <select
+                          value={tableDesign.borderWidthPx}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onChange={(e) =>
+                            onUpdateTableBorders({
+                              enabled: true,
+                              widthPx: Number(e.target.value),
+                            })
+                          }
+                          aria-label="Table border thickness"
+                          title="Border Thickness"
+                          className="h-6 px-1.5 bg-white border border-[#C8C6C4] rounded text-xs tabular-nums outline-none cursor-pointer"
+                        >
+                          {TABLE_BORDER_WIDTHS.map((w) => (
+                            <option key={w.value} value={w.value}>
+                              {w.label}
+                            </option>
+                          ))}
+                        </select>
+                        <span
+                          className="w-8 rounded-full shrink-0"
+                          style={{
+                            height: `${Math.max(1, Math.min(4, tableDesign.borderWidthPx))}px`,
+                            backgroundColor: tableDesign.bordersEnabled
+                              ? tableDesign.borderColor
+                              : '#D2D0CE',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </RibbonGroup>
+
+                {!tableDesign.hasSelectedTable && (
+                  <RibbonGroup label="Selection">
+                    <div className="px-2 text-xs text-[#605E5C] flex items-center">
+                      Click inside any table in the document to customize its borders.
+                    </div>
+                  </RibbonGroup>
+                )}
               </>
             )}
           </div>

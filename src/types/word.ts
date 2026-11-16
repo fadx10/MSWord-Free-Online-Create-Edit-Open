@@ -7,7 +7,8 @@ export type RibbonTab =
   | 'References'
   | 'Mailings'
   | 'Review'
-  | 'View';
+  | 'View'
+  | 'Table Design';
 
 export type PageSize = 'Letter' | 'A4' | 'Legal';
 export type Orientation = 'portrait' | 'landscape';

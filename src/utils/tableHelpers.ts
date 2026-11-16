@@ -251,6 +251,13 @@ export function mergeTableCells(
 function createEmptyCellLike(template: HTMLTableCellElement): HTMLTableCellElement {
   const tag = template.tagName.toLowerCase() === 'th' ? 'th' : 'td';
   const el = document.createElement(tag);
+  if (template.style.border) {
+    el.style.border = template.style.border;
+  } else {
+    if (template.style.borderStyle) el.style.borderStyle = template.style.borderStyle;
+    if (template.style.borderColor) el.style.borderColor = template.style.borderColor;
+    if (template.style.borderWidth) el.style.borderWidth = template.style.borderWidth;
+  }
   el.innerHTML = '<br />';
   return el;
 }
@@ -389,3 +396,117 @@ export function splitTableCells(
 
   return changed;
 }
+
+export interface TableBorderState {
+  enabled: boolean;
+  color: string;
+  widthPx: number;
+}
+
+function rgbToHex(colorStr: string): string {
+  const trimmed = colorStr.trim();
+  if (!trimmed) return '#8A8886';
+  if (trimmed.startsWith('#')) return trimmed.toUpperCase();
+  const match = trimmed.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+  if (match) {
+    const r = Number(match[1]).toString(16).padStart(2, '0');
+    const g = Number(match[2]).toString(16).padStart(2, '0');
+    const b = Number(match[3]).toString(16).padStart(2, '0');
+    return `#${r}${g}${b}`.toUpperCase();
+  }
+  return trimmed;
+}
+
+export function getSelectedTable(
+  editorEl: HTMLElement | null,
+  range?: Range | null
+): HTMLTableElement | null {
+  if (!editorEl || !range || !editorEl.contains(range.startContainer)) {
+    return null;
+  }
+  const startNode =
+    range.startContainer.nodeType === Node.ELEMENT_NODE
+      ? (range.startContainer as HTMLElement)
+      : range.startContainer.parentElement;
+  const table = startNode?.closest('table') as HTMLTableElement | null;
+  if (table && editorEl.contains(table)) {
+    return table;
+  }
+
+  // Also check if a non-collapsed range spans into a table
+  if (!range.collapsed) {
+    const tables = Array.from(editorEl.querySelectorAll<HTMLTableElement>('table'));
+    const intersected = tables.find((t) => {
+      try {
+        return range.intersectsNode(t);
+      } catch {
+        return false;
+      }
+    });
+    if (intersected) return intersected;
+  }
+
+  return null;
+}
+
+export function getTableBorderState(table: HTMLTableElement | null): TableBorderState {
+  if (!table) {
+    return { enabled: true, color: '#8A8886', widthPx: 1 };
+  }
+
+  const enabledAttr = table.getAttribute('data-border-enabled');
+  const colorAttr = table.getAttribute('data-border-color');
+  const widthAttr = table.getAttribute('data-border-width');
+
+  if (enabledAttr !== null || colorAttr !== null || widthAttr !== null) {
+    const enabled = enabledAttr !== 'false';
+    const color = colorAttr ? rgbToHex(colorAttr) : '#8A8886';
+    const parsedWidth = widthAttr ? parseFloat(widthAttr) : 1;
+    const widthPx = Number.isFinite(parsedWidth) && parsedWidth > 0 ? parsedWidth : 1;
+    return { enabled, color, widthPx };
+  }
+
+  const firstCell = table.querySelector<HTMLTableCellElement>('td, th');
+  if (firstCell) {
+    const borderStyle = firstCell.style.borderStyle;
+    const borderWidth = firstCell.style.borderWidth;
+    const borderColor = firstCell.style.borderColor;
+
+    const disabled =
+      borderStyle === 'none' ||
+      firstCell.style.border === 'none' ||
+      borderWidth === '0px' ||
+      borderWidth === '0';
+
+    const parsedWidth = parseFloat(borderWidth);
+    return {
+      enabled: !disabled,
+      color: borderColor ? rgbToHex(borderColor) : '#8A8886',
+      widthPx: Number.isFinite(parsedWidth) && parsedWidth > 0 ? parsedWidth : 1,
+    };
+  }
+
+  return { enabled: true, color: '#8A8886', widthPx: 1 };
+}
+
+export function applyTableBorders(
+  table: HTMLTableElement,
+  state: TableBorderState
+): void {
+  const normalizedColor = rgbToHex(state.color || '#8A8886');
+  const clampedWidth = Math.max(0.5, Math.min(8, Number(state.widthPx) || 1));
+
+  table.setAttribute('data-border-enabled', state.enabled ? 'true' : 'false');
+  table.setAttribute('data-border-color', normalizedColor);
+  table.setAttribute('data-border-width', String(clampedWidth));
+
+  const borderCss = state.enabled
+    ? `${clampedWidth}px solid ${normalizedColor}`
+    : 'none';
+
+  table.style.border = borderCss;
+  table.querySelectorAll<HTMLTableCellElement>('th, td').forEach((cell) => {
+    cell.style.border = borderCss;
+  });
+}
+

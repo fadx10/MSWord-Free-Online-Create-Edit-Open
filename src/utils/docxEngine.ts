@@ -24,6 +24,8 @@ import {
   MARGIN_INCHES,
   PAGE_DIMENSIONS_INCHES,
 } from '../types/word';
+import { parseCssLengthToInches } from './editorHelpers';
+import { getTableBorderState } from './tableHelpers';
 
 export interface ImportedFileResult {
   title: string;
@@ -354,6 +356,14 @@ function collectRunsFromNode(
 
 function convertTableElement(tableEl: HTMLTableElement): Table {
   const rows: TableRow[] = [];
+  const borderState = getTableBorderState(tableEl);
+  const borderHex = normalizeHexColor(borderState.color) ?? '8A8886';
+  // docx border size is measured in 1/8 of a point; 1px ~= 0.75pt => ~6 eighths of a point
+  const borderSizeEighths = Math.max(2, Math.round(borderState.widthPx * 0.75 * 8));
+  const tableBorderDef = borderState.enabled
+    ? { style: BorderStyle.SINGLE, size: borderSizeEighths, color: borderHex }
+    : { style: BorderStyle.NONE, size: 0, color: 'auto' };
+
   const trList = tableEl.querySelectorAll('tr');
   trList.forEach((tr) => {
     const cells: TableCell[] = [];
@@ -365,6 +375,12 @@ function convertTableElement(tableEl: HTMLTableElement): Table {
         new TableCell({
           columnSpan: cellEl.colSpan > 1 ? cellEl.colSpan : undefined,
           rowSpan: cellEl.rowSpan > 1 ? cellEl.rowSpan : undefined,
+          borders: {
+            top: tableBorderDef,
+            bottom: tableBorderDef,
+            left: tableBorderDef,
+            right: tableBorderDef,
+          },
           children: [
             new Paragraph({
               children: runs.length ? runs : [new TextRun('')],
@@ -381,10 +397,35 @@ function convertTableElement(tableEl: HTMLTableElement): Table {
 
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: {
+      top: tableBorderDef,
+      bottom: tableBorderDef,
+      left: tableBorderDef,
+      right: tableBorderDef,
+      insideHorizontal: tableBorderDef,
+      insideVertical: tableBorderDef,
+    },
     rows: rows.length
       ? rows
       : [new TableRow({ children: [new TableCell({ children: [new Paragraph('')] })] })],
   });
+}
+
+function buildParagraphIndent(
+  el: HTMLElement,
+  baseLeftInches = 0,
+  baseRightInches = 0
+): { left?: number; right?: number; firstLine?: number } | undefined {
+  const leftIn = baseLeftInches + parseCssLengthToInches(el.style.marginLeft);
+  const rightIn = baseRightInches + parseCssLengthToInches(el.style.marginRight);
+  const firstLineIn = parseCssLengthToInches(el.style.textIndent);
+
+  if (leftIn <= 0 && rightIn <= 0 && firstLineIn <= 0) return undefined;
+  return {
+    left: leftIn > 0 ? convertInchesToTwip(leftIn) : undefined,
+    right: rightIn > 0 ? convertInchesToTwip(rightIn) : undefined,
+    firstLine: firstLineIn > 0 ? convertInchesToTwip(firstLineIn) : undefined,
+  };
 }
 
 function convertBlockElement(
@@ -394,6 +435,7 @@ function convertBlockElement(
   const tag = el.tagName.toLowerCase();
   const align = mapAlignment(el.style.textAlign);
   const lineRule = Math.round(settings.lineSpacing * 240);
+  const paragraphIndent = buildParagraphIndent(el);
 
   if (el.classList.contains('word-page-break')) {
     return [new Paragraph({ pageBreakBefore: true, children: [] })];
@@ -418,10 +460,12 @@ function convertBlockElement(
     const items: Paragraph[] = [];
     const isOrdered = tag === 'ol';
     Array.from(el.children).forEach((li, index) => {
+      const liEl = li as HTMLElement;
       const runs = collectRunsFromNode(li, {});
       items.push(
         new Paragraph({
           bullet: isOrdered ? undefined : { level: 0 },
+          indent: buildParagraphIndent(liEl),
           children: isOrdered
             ? [new TextRun({ text: `${index + 1}. ` }), ...runs]
             : runs.length
@@ -439,6 +483,7 @@ function convertBlockElement(
       new Paragraph({
         heading: HeadingLevel.HEADING_1,
         alignment: align,
+        indent: paragraphIndent,
         children: collectRunsFromNode(el, { sizeHalfPoints: 36, color: '0F6CBD' }),
         spacing: { before: 240, after: 80, line: lineRule },
       }),
@@ -450,6 +495,7 @@ function convertBlockElement(
       new Paragraph({
         heading: HeadingLevel.HEADING_2,
         alignment: align,
+        indent: paragraphIndent,
         children: collectRunsFromNode(el, { sizeHalfPoints: 30, color: '0F6CBD' }),
         spacing: { before: 200, after: 80, line: lineRule },
       }),
@@ -461,6 +507,7 @@ function convertBlockElement(
       new Paragraph({
         heading: HeadingLevel.HEADING_3,
         alignment: align,
+        indent: paragraphIndent,
         children: collectRunsFromNode(el, { bold: true, sizeHalfPoints: 26, color: '104A9E' }),
         spacing: { before: 160, after: 60, line: lineRule },
       }),
@@ -472,6 +519,7 @@ function convertBlockElement(
       new Paragraph({
         heading: HeadingLevel.TITLE,
         alignment: align,
+        indent: paragraphIndent,
         children: collectRunsFromNode(el, { sizeHalfPoints: 52, color: '242424' }),
         spacing: { after: 120 },
       }),
@@ -482,7 +530,7 @@ function convertBlockElement(
     return [
       new Paragraph({
         alignment: align,
-        indent: { left: convertInchesToTwip(0.5), right: convertInchesToTwip(0.5) },
+        indent: buildParagraphIndent(el, 0.5, 0.5),
         children: collectRunsFromNode(el, { italics: true, color: '484644' }),
         spacing: { before: 120, after: 120, line: lineRule },
       }),
@@ -512,6 +560,7 @@ function convertBlockElement(
   return [
     new Paragraph({
       alignment: align,
+      indent: paragraphIndent,
       children: runs.length ? runs : [new TextRun('')],
       spacing: { after: 160, line: lineRule },
     }),

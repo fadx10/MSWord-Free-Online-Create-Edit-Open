@@ -15,7 +15,7 @@ import {
 import { EditorCanvas, SearchHighlightRect } from './components/EditorCanvas';
 import { BackstageSection, FileBackstage } from './components/FileBackstage';
 import { NavigationPane } from './components/NavigationPane';
-import { ActiveFormattingState, Ribbon } from './components/Ribbon';
+import { ActiveFormattingState, Ribbon, TableDesignState } from './components/Ribbon';
 import { HorizontalRuler, VerticalRuler } from './components/Rulers';
 import { StatusBar } from './components/StatusBar';
 import { QuickCommandItem, TitleBar } from './components/TitleBar';
@@ -44,6 +44,7 @@ import {
   importFileToHtml,
 } from './utils/docxEngine';
 import {
+  adjustParagraphLeftIndent,
   applySearchHighlights,
   buildTableHtml,
   buildTableOfContentsHtml,
@@ -51,11 +52,17 @@ import {
   computePaginationMetrics,
   extractHeadingOutline,
   findSearchMatchRanges,
+  readBlockIndentationState,
   runQuickProofingCheck,
+  setParagraphLeftIndent,
   SpellingIssue,
+  toggleParagraphFirstLineIndent,
 } from './utils/editorHelpers';
 import {
+  applyTableBorders,
+  getSelectedTable,
   getSelectedTableCells,
+  getTableBorderState,
   mergeTableCells,
   splitTableCells,
   unmergeCell,
@@ -199,6 +206,14 @@ export default function App() {
     fontName: 'Calibri, "Plus Jakarta Sans", sans-serif',
     fontSizePt: '11',
     blockTag: 'p',
+    leftIndentIn: 0,
+    firstLineIndent: false,
+  });
+  const [tableDesign, setTableDesign] = useState<TableDesignState>({
+    hasSelectedTable: false,
+    bordersEnabled: true,
+    borderColor: '#8A8886',
+    borderWidthPx: 1,
   });
 
   // Undo / Redo Snapshot History
@@ -219,6 +234,7 @@ export default function App() {
 
   const editorRef = useRef<HTMLDivElement | null>(null);
   const savedRangeRef = useRef<Range | null>(null);
+  const selectedTableRef = useRef<HTMLTableElement | null>(null);
   const hiddenOpenFileRef = useRef<HTMLInputElement | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const saveToastTimerRef = useRef<number | null>(null);
@@ -268,6 +284,13 @@ export default function App() {
     setStats(estStats);
     setCurrentPage(1);
     setHeadings(extractHeadingOutline(editorRef.current));
+    selectedTableRef.current = null;
+    setTableDesign({
+      hasSelectedTable: false,
+      bordersEnabled: true,
+      borderColor: '#8A8886',
+      borderWidthPx: 1,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeDoc.id]);
 
@@ -442,6 +465,23 @@ export default function App() {
         }
       }
 
+      const indentState = readBlockIndentationState(editorRef.current, activeRange);
+      const activeTable = getSelectedTable(editorRef.current, activeRange);
+      selectedTableRef.current = activeTable;
+      if (activeTable) {
+        const bState = getTableBorderState(activeTable);
+        setTableDesign({
+          hasSelectedTable: true,
+          bordersEnabled: bState.enabled,
+          borderColor: bState.color,
+          borderWidthPx: bState.widthPx,
+        });
+      } else {
+        setTableDesign((prev) =>
+          prev.hasSelectedTable ? { ...prev, hasSelectedTable: false } : prev
+        );
+      }
+
       setFormatting((prev) => ({
         ...prev,
         bold,
@@ -454,11 +494,13 @@ export default function App() {
         orderedList,
         unorderedList,
         blockTag,
+        leftIndentIn: indentState.leftIndentIn,
+        firstLineIndent: indentState.firstLineIndent,
       }));
     } catch {
       // Ignore queryCommandState errors when unfocused
     }
-  }, [saveSelection]);
+  }, [getPrintablePageHeightPx, saveSelection]);
 
   // Apply Format Painter when mouse releases inside editor
   const handleEditorMouseUp = useCallback(() => {
@@ -629,6 +671,79 @@ export default function App() {
       updateFormattingState();
     },
     [refreshEditorDerivedState, restoreSelection, updateFormattingState]
+  );
+
+  const handleAdjustLeftIndent = useCallback(
+    (deltaInches: number) => {
+      restoreSelection();
+      const sel = window.getSelection();
+      const range = sel && sel.rangeCount > 0 ? sel.getRangeAt(0) : savedRangeRef.current;
+      adjustParagraphLeftIndent(editorRef.current, range, deltaInches);
+      saveSelection();
+      refreshEditorDerivedState();
+      updateFormattingState();
+    },
+    [refreshEditorDerivedState, restoreSelection, saveSelection, updateFormattingState]
+  );
+
+  const handleSetLeftIndent = useCallback(
+    (inches: number) => {
+      restoreSelection();
+      const sel = window.getSelection();
+      const range = sel && sel.rangeCount > 0 ? sel.getRangeAt(0) : savedRangeRef.current;
+      setParagraphLeftIndent(editorRef.current, range, inches);
+      saveSelection();
+      refreshEditorDerivedState();
+      updateFormattingState();
+    },
+    [refreshEditorDerivedState, restoreSelection, saveSelection, updateFormattingState]
+  );
+
+  const handleToggleFirstLineIndent = useCallback(() => {
+    restoreSelection();
+    const sel = window.getSelection();
+    const range = sel && sel.rangeCount > 0 ? sel.getRangeAt(0) : savedRangeRef.current;
+    const enabled = toggleParagraphFirstLineIndent(editorRef.current, range, 0.5);
+    saveSelection();
+    refreshEditorDerivedState();
+    updateFormattingState();
+    showToast(enabled ? 'First line indent applied (0.5")' : 'First line indent removed');
+  }, [refreshEditorDerivedState, restoreSelection, saveSelection, showToast, updateFormattingState]);
+
+  const handleUpdateTableBorders = useCallback(
+    (patch: { enabled?: boolean; color?: string; widthPx?: number }) => {
+      const sel = window.getSelection();
+      const activeRange =
+        sel && sel.rangeCount > 0 ? sel.getRangeAt(0) : savedRangeRef.current;
+      const table =
+        getSelectedTable(editorRef.current, activeRange) ??
+        (selectedTableRef.current && editorRef.current?.contains(selectedTableRef.current)
+          ? selectedTableRef.current
+          : null);
+
+      if (!table) {
+        showToast('Click inside a table first to customize its borders');
+        return;
+      }
+
+      const current = getTableBorderState(table);
+      const nextState = {
+        enabled: patch.enabled ?? current.enabled,
+        color: patch.color ?? current.color,
+        widthPx: patch.widthPx ?? current.widthPx,
+      };
+
+      applyTableBorders(table, nextState);
+      selectedTableRef.current = table;
+      setTableDesign({
+        hasSelectedTable: true,
+        bordersEnabled: nextState.enabled,
+        borderColor: nextState.color,
+        borderWidthPx: nextState.widthPx,
+      });
+      refreshEditorDerivedState();
+    },
+    [refreshEditorDerivedState, showToast]
   );
 
   const handleUndo = useCallback(() => {
@@ -816,6 +931,9 @@ export default function App() {
           newRow.appendChild(td);
         }
         row.after(newRow);
+        if (table.hasAttribute('data-border-enabled')) {
+          applyTableBorders(table, getTableBorderState(table));
+        }
       } else if (action === 'addCol') {
         table.querySelectorAll('tr').forEach((tr) => {
           const isHead = tr.parentElement?.tagName.toLowerCase() === 'thead';
@@ -823,6 +941,9 @@ export default function App() {
           newCell.innerHTML = isHead ? 'Column' : '<br />';
           tr.appendChild(newCell);
         });
+        if (table.hasAttribute('data-border-enabled')) {
+          applyTableBorders(table, getTableBorderState(table));
+        }
       } else if (action === 'delRow') {
         if (table.querySelectorAll('tr').length <= 1) table.remove();
         else row.remove();
@@ -1342,10 +1463,30 @@ export default function App() {
           setBackstageOpen(true);
         },
       },
+      {
+        id: 'increase-left-indent',
+        label: 'Increase Paragraph Left Indent (+0.5")',
+        category: 'Layout',
+        action: () => handleAdjustLeftIndent(0.5),
+      },
+      {
+        id: 'decrease-left-indent',
+        label: 'Decrease Paragraph Left Indent (-0.5")',
+        category: 'Layout',
+        action: () => handleAdjustLeftIndent(-0.5),
+      },
+      {
+        id: 'toggle-first-line-indent',
+        label: 'Toggle First Line Indent (0.5")',
+        category: 'Layout',
+        action: handleToggleFirstLineIndent,
+      },
     ],
     [
       activeDoc.settings.showRuler,
+      handleAdjustLeftIndent,
       handleExportDocx,
+      handleToggleFirstLineIndent,
       handleToggleReadAloud,
       insertHtmlAtCursor,
       isReadingAloud,
@@ -1430,6 +1571,7 @@ export default function App() {
           }}
           collapsed={ribbonCollapsed}
           formatting={formatting}
+          tableDesign={tableDesign}
           settings={activeDoc.settings}
           viewMode={viewMode}
           zoom={zoom}
@@ -1446,6 +1588,10 @@ export default function App() {
           onChangeCase={handleChangeCase}
           onClearFormatting={() => execEditorCommand('removeFormat')}
           onApplyStyle={handleApplyStyle}
+          onAdjustLeftIndent={handleAdjustLeftIndent}
+          onSetLeftIndent={handleSetLeftIndent}
+          onToggleFirstLineIndent={handleToggleFirstLineIndent}
+          onUpdateTableBorders={handleUpdateTableBorders}
           onPaste={() => handlePaste(false)}
           onCut={handleCut}
           onCopy={handleCopy}

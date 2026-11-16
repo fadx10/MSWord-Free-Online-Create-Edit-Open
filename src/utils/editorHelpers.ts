@@ -335,3 +335,182 @@ export function applySearchHighlights(
   return true;
 }
 
+export function parseCssLengthToInches(value: string | undefined | null): number {
+  if (!value) return 0;
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed || trimmed === '0' || trimmed === 'auto' || trimmed === 'none') return 0;
+
+  const match = trimmed.match(/^(-?[\d.]+)\s*(in|pt|px|cm|mm)?$/);
+  if (!match) return 0;
+  const num = parseFloat(match[1]);
+  if (!Number.isFinite(num)) return 0;
+
+  const unit = match[2] || 'px';
+  let inches = 0;
+  switch (unit) {
+    case 'in':
+      inches = num;
+      break;
+    case 'pt':
+      inches = num / 72;
+      break;
+    case 'px':
+      inches = num / 96;
+      break;
+    case 'cm':
+      inches = num / 2.54;
+      break;
+    case 'mm':
+      inches = num / 25.4;
+      break;
+    default:
+      inches = num / 96;
+  }
+  return Math.max(0, Math.round(inches * 100) / 100);
+}
+
+const BLOCK_TAGS = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'blockquote', 'li', 'div']);
+
+function isTargetParagraphBlock(el: HTMLElement, editorEl: HTMLElement): boolean {
+  if (el === editorEl) return false;
+  if (el.classList.contains('word-page-break')) return false;
+  const tag = el.tagName.toLowerCase();
+  if (!BLOCK_TAGS.has(tag)) return false;
+
+  if (tag === 'div') {
+    // Only treat leaf divs (that don't wrap other block paragraphs) as paragraph blocks
+    const hasNestedBlock = Array.from(el.children).some((child) => {
+      const cTag = child.tagName.toLowerCase();
+      return BLOCK_TAGS.has(cTag);
+    });
+    if (hasNestedBlock) return false;
+  }
+
+  return true;
+}
+
+function isRangeEndingAtStartOf(range: Range, el: HTMLElement): boolean {
+  if (range.collapsed || !el.contains(range.endContainer)) return false;
+  if (range.endOffset !== 0) return false;
+  let node: Node | null = range.endContainer;
+  while (node && node !== el) {
+    if (node.previousSibling) return false;
+    node = node.parentNode;
+  }
+  return node === el;
+}
+
+export function getSelectedBlockElements(
+  editorEl: HTMLElement | null,
+  range?: Range | null
+): HTMLElement[] {
+  if (!editorEl) return [];
+
+  if (range && editorEl.contains(range.startContainer)) {
+    if (range.collapsed) {
+      let node: Node | null = range.startContainer;
+      while (node && node !== editorEl) {
+        if (
+          node.nodeType === Node.ELEMENT_NODE &&
+          isTargetParagraphBlock(node as HTMLElement, editorEl)
+        ) {
+          return [node as HTMLElement];
+        }
+        node = node.parentNode;
+      }
+      return [];
+    }
+
+    const blocks: HTMLElement[] = [];
+    const walker = document.createTreeWalker(editorEl, NodeFilter.SHOW_ELEMENT);
+    let current = walker.nextNode();
+    while (current) {
+      const el = current as HTMLElement;
+      if (isTargetParagraphBlock(el, editorEl)) {
+        try {
+          if (range.intersectsNode(el) && !isRangeEndingAtStartOf(range, el)) {
+            blocks.push(el);
+          }
+        } catch {
+          // Ignore detached nodes
+        }
+      }
+      current = walker.nextNode();
+    }
+
+    if (blocks.length > 0) {
+      return blocks;
+    }
+  }
+
+  // Fallback to nearest block containing the active range or first paragraph
+  const firstBlock = editorEl.querySelector<HTMLElement>('p, h1, h2, h3, h4, blockquote, li');
+  return firstBlock && isTargetParagraphBlock(firstBlock, editorEl) ? [firstBlock] : [];
+}
+
+export function readBlockIndentationState(
+  editorEl: HTMLElement | null,
+  range?: Range | null
+): { leftIndentIn: number; firstLineIndent: boolean } {
+  const blocks = getSelectedBlockElements(editorEl, range);
+  if (blocks.length === 0) {
+    return { leftIndentIn: 0, firstLineIndent: false };
+  }
+  const primary = blocks[0];
+  const leftIndentIn = parseCssLengthToInches(primary.style.marginLeft);
+  const firstLineIn = parseCssLengthToInches(primary.style.textIndent);
+  return {
+    leftIndentIn,
+    firstLineIndent: firstLineIn > 0.05,
+  };
+}
+
+export function adjustParagraphLeftIndent(
+  editorEl: HTMLElement | null,
+  range: Range | null,
+  deltaInches: number
+): number {
+  const blocks = getSelectedBlockElements(editorEl, range);
+  if (blocks.length === 0) return 0;
+
+  let firstResult = 0;
+  blocks.forEach((block, idx) => {
+    const current = parseCssLengthToInches(block.style.marginLeft);
+    const next = Math.max(0, Math.min(4.5, Math.round((current + deltaInches) * 100) / 100));
+    block.style.marginLeft = next > 0 ? `${next}in` : '';
+    if (idx === 0) firstResult = next;
+  });
+  return firstResult;
+}
+
+export function setParagraphLeftIndent(
+  editorEl: HTMLElement | null,
+  range: Range | null,
+  inches: number
+): number {
+  const blocks = getSelectedBlockElements(editorEl, range);
+  const clamped = Math.max(0, Math.min(4.5, Math.round(inches * 100) / 100));
+  blocks.forEach((block) => {
+    block.style.marginLeft = clamped > 0 ? `${clamped}in` : '';
+  });
+  return clamped;
+}
+
+export function toggleParagraphFirstLineIndent(
+  editorEl: HTMLElement | null,
+  range: Range | null,
+  indentInches = 0.5
+): boolean {
+  const blocks = getSelectedBlockElements(editorEl, range);
+  if (blocks.length === 0) return false;
+
+  const isCurrentlyIndented = parseCssLengthToInches(blocks[0].style.textIndent) > 0.05;
+  const nextState = !isCurrentlyIndented;
+
+  blocks.forEach((block) => {
+    block.style.textIndent = nextState ? `${indentInches}in` : '';
+  });
+
+  return nextState;
+}
+
