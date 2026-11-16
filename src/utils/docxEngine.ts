@@ -25,11 +25,15 @@ import {
   PAGE_DIMENSIONS_INCHES,
 } from '../types/word';
 import { parseCssLengthToInches } from './editorHelpers';
-import { getTableBorderState } from './tableHelpers';
+import { getTableBorderState, isTableAutoFitContents } from './tableHelpers';
+import { importDocxWithStyles, scopeImportedHtmlStyles } from './docxImporter';
 
 export interface ImportedFileResult {
   title: string;
   contentHtml: string;
+  headerText?: string;
+  footerText?: string;
+  settings?: Partial<DocumentSettings>;
   warnings: string[];
 }
 
@@ -39,13 +43,26 @@ export async function importFileToHtml(file: File): Promise<ImportedFileResult> 
 
   if (ext === 'docx') {
     const arrayBuffer = await file.arrayBuffer();
-    const result = await mammoth.convertToHtml({ arrayBuffer });
-    const html = result.value?.trim() ? result.value : '<p><br /></p>';
-    return {
-      title: baseName,
-      contentHtml: html,
-      warnings: result.messages.map((m) => m.message),
-    };
+    try {
+      const rich = await importDocxWithStyles(arrayBuffer, baseName);
+      return {
+        title: baseName,
+        contentHtml: rich.contentHtml,
+        headerText: rich.headerText,
+        footerText: rich.footerText,
+        settings: rich.settings,
+        warnings: rich.warnings,
+      };
+    } catch {
+      const result = await mammoth.convertToHtml({ arrayBuffer });
+      const html = result.value?.trim() ? result.value : '<p><br /></p>';
+      return {
+        title: baseName,
+        contentHtml: html,
+        settings: { preserveImportedStyles: true },
+        warnings: result.messages.map((m) => m.message),
+      };
+    }
   }
 
   const text = await file.text();
@@ -53,10 +70,61 @@ export async function importFileToHtml(file: File): Promise<ImportedFileResult> 
   if (ext === 'html' || ext === 'htm') {
     const parser = new DOMParser();
     const doc = parser.parseFromString(text, 'text/html');
-    const bodyHtml = doc.body?.innerHTML?.trim() || '<p><br /></p>';
+    doc.querySelectorAll('script').forEach((s) => s.remove());
+
+    const rawCssBlocks: string[] = [];
+    doc.querySelectorAll('style').forEach((styleEl) => {
+      if (styleEl.textContent?.trim()) {
+        rawCssBlocks.push(styleEl.textContent);
+      }
+      styleEl.remove();
+    });
+
+    const scopedCss = rawCssBlocks.length
+      ? scopeImportedHtmlStyles(rawCssBlocks.join('\n'))
+      : undefined;
+
+    const bodyEl = doc.body;
+    const bodyStyle = bodyEl?.style;
+    const bodyFontSizePt = bodyStyle?.fontSize
+      ? (() => {
+          const halfPts = parseFontSizeHalfPoints(bodyStyle.fontSize);
+          return halfPts ? halfPts / 2 : undefined;
+        })()
+      : undefined;
+    const bodyLineHeight = bodyStyle?.lineHeight
+      ? parseFloat(bodyStyle.lineHeight)
+      : undefined;
+
+    const importedBaseStyle =
+      bodyStyle?.fontFamily || bodyFontSizePt || bodyStyle?.color || bodyLineHeight
+        ? {
+            fontFamily: bodyStyle?.fontFamily || undefined,
+            fontSizePt: bodyFontSizePt,
+            color: bodyStyle?.color || undefined,
+            lineHeight:
+              bodyLineHeight && Number.isFinite(bodyLineHeight)
+                ? bodyLineHeight
+                : undefined,
+          }
+        : undefined;
+
+    const pageColor = bodyStyle?.backgroundColor
+      ? normalizeHexColor(bodyStyle.backgroundColor)
+        ? `#${normalizeHexColor(bodyStyle.backgroundColor)}`
+        : undefined
+      : undefined;
+
+    const bodyHtml = bodyEl?.innerHTML?.trim() || '<p><br /></p>';
     return {
       title: doc.title?.trim() || baseName,
       contentHtml: bodyHtml,
+      settings: {
+        preserveImportedStyles: true,
+        importedCss: scopedCss,
+        importedBaseStyle,
+        pageColor: pageColor || '#FFFFFF',
+      },
       warnings: [],
     };
   }
@@ -285,6 +353,32 @@ function collectRunsFromNode(
     return [new TextRun({ break: 1 })];
   }
 
+  if (tag === 'span' && el.classList.contains('word-tickbox-wrap')) {
+    const cb = el.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+    const isChecked = cb ? cb.checked || cb.hasAttribute('checked') : false;
+    return [
+      new TextRun({
+        text: isChecked ? '☑' : '☐',
+        font: inherited.font,
+        size: inherited.sizeHalfPoints,
+        color: inherited.color,
+      }),
+    ];
+  }
+
+  if (tag === 'input' && (el as HTMLInputElement).type === 'checkbox') {
+    const cb = el as HTMLInputElement;
+    const isChecked = cb.checked || cb.hasAttribute('checked');
+    return [
+      new TextRun({
+        text: isChecked ? '☑' : '☐',
+        font: inherited.font,
+        size: inherited.sizeHalfPoints,
+        color: inherited.color,
+      }),
+    ];
+  }
+
   if (tag === 'img') {
     const src = el.getAttribute('src') || '';
     if (src.startsWith('data:image/')) {
@@ -395,8 +489,12 @@ function convertTableElement(tableEl: HTMLTableElement): Table {
     }
   });
 
+  const autoFitContents = isTableAutoFitContents(tableEl);
+
   return new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
+    width: autoFitContents
+      ? { size: 0, type: WidthType.AUTO }
+      : { size: 100, type: WidthType.PERCENTAGE },
     borders: {
       top: tableBorderDef,
       bottom: tableBorderDef,
@@ -484,7 +582,14 @@ function convertBlockElement(
         heading: HeadingLevel.HEADING_1,
         alignment: align,
         indent: paragraphIndent,
-        children: collectRunsFromNode(el, { sizeHalfPoints: 36, color: '0F6CBD' }),
+        children: collectRunsFromNode(el, {
+          sizeHalfPoints: parseFontSizeHalfPoints(el.style.fontSize) ?? 36,
+          color: normalizeHexColor(el.style.color) ?? '0F6CBD',
+          font: el.style.fontFamily
+            ? el.style.fontFamily.replace(/['"]/g, '').split(',')[0].trim()
+            : undefined,
+          bold: el.style.fontWeight === 'bold' || Number(el.style.fontWeight) >= 600 || undefined,
+        }),
         spacing: { before: 240, after: 80, line: lineRule },
       }),
     ];
@@ -496,7 +601,14 @@ function convertBlockElement(
         heading: HeadingLevel.HEADING_2,
         alignment: align,
         indent: paragraphIndent,
-        children: collectRunsFromNode(el, { sizeHalfPoints: 30, color: '0F6CBD' }),
+        children: collectRunsFromNode(el, {
+          sizeHalfPoints: parseFontSizeHalfPoints(el.style.fontSize) ?? 30,
+          color: normalizeHexColor(el.style.color) ?? '0F6CBD',
+          font: el.style.fontFamily
+            ? el.style.fontFamily.replace(/['"]/g, '').split(',')[0].trim()
+            : undefined,
+          bold: el.style.fontWeight === 'bold' || Number(el.style.fontWeight) >= 600 || undefined,
+        }),
         spacing: { before: 200, after: 80, line: lineRule },
       }),
     ];
@@ -508,7 +620,17 @@ function convertBlockElement(
         heading: HeadingLevel.HEADING_3,
         alignment: align,
         indent: paragraphIndent,
-        children: collectRunsFromNode(el, { bold: true, sizeHalfPoints: 26, color: '104A9E' }),
+        children: collectRunsFromNode(el, {
+          bold:
+            el.style.fontWeight
+              ? el.style.fontWeight === 'bold' || Number(el.style.fontWeight) >= 600
+              : true,
+          sizeHalfPoints: parseFontSizeHalfPoints(el.style.fontSize) ?? 26,
+          color: normalizeHexColor(el.style.color) ?? '104A9E',
+          font: el.style.fontFamily
+            ? el.style.fontFamily.replace(/['"]/g, '').split(',')[0].trim()
+            : undefined,
+        }),
         spacing: { before: 160, after: 60, line: lineRule },
       }),
     ];
@@ -520,7 +642,13 @@ function convertBlockElement(
         heading: HeadingLevel.TITLE,
         alignment: align,
         indent: paragraphIndent,
-        children: collectRunsFromNode(el, { sizeHalfPoints: 52, color: '242424' }),
+        children: collectRunsFromNode(el, {
+          sizeHalfPoints: parseFontSizeHalfPoints(el.style.fontSize) ?? 52,
+          color: normalizeHexColor(el.style.color) ?? '242424',
+          font: el.style.fontFamily
+            ? el.style.fontFamily.replace(/['"]/g, '').split(',')[0].trim()
+            : undefined,
+        }),
         spacing: { after: 120 },
       }),
     ];

@@ -136,6 +136,7 @@ interface RibbonProps {
   onInsertPageNumber: (format: 'pageOfTotal' | 'pageOnly' | 'numberOnly' | 'remove') => void;
   onInsertDateTime: () => void;
   onInsertSymbol: (sym: string) => void;
+  onInsertTickBox: (variant: 'inline' | 'checked' | 'checklistItem' | 'checklist3') => void;
   onOpenDrawPad: () => void;
   onUpdateSettings: (patch: Partial<DocumentSettings>) => void;
   onOpenWatermarkDialog: () => void;
@@ -338,6 +339,7 @@ export const Ribbon: React.FC<RibbonProps> = ({
   onInsertPageNumber,
   onInsertDateTime,
   onInsertSymbol,
+  onInsertTickBox,
   onOpenDrawPad,
   onUpdateSettings,
   onOpenWatermarkDialog,
@@ -749,12 +751,74 @@ export const Ribbon: React.FC<RibbonProps> = ({
                       >
                         <ListOrdered className="w-3.5 h-3.5" />
                       </IconBtn>
-                      <IconBtn
-                        onClick={() => onExecCommand('insertHTML', '<p>☐ Task item</p>')}
-                        title="Insert Checklist Item"
-                      >
-                        <CheckSquare className="w-3.5 h-3.5" />
-                      </IconBtn>
+                      <div className="relative flex items-center">
+                        <IconBtn
+                          onClick={() => onInsertTickBox('inline')}
+                          title="Insert Interactive Tick Box"
+                        >
+                          <CheckSquare className="w-3.5 h-3.5 text-[#185ABD]" />
+                        </IconBtn>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => toggleMenu('homeTickBox')}
+                          title="Tick Box & Checklist Options"
+                          className="h-6 px-0.5 rounded hover:bg-[#E1DFDD] cursor-pointer"
+                        >
+                          <ChevronDown className="w-2.5 h-2.5 text-[#605E5C]" />
+                        </button>
+                        {openMenu === 'homeTickBox' && (
+                          <div className="absolute left-0 top-7 bg-white border border-[#D2D0CE] rounded shadow-lg py-1 z-50 w-48">
+                            <button
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                onInsertTickBox('inline');
+                                setOpenMenu(null);
+                              }}
+                              className="w-full px-3 py-1.5 text-left text-xs hover:bg-[#F3F2F1] flex items-center justify-between cursor-pointer"
+                            >
+                              <span>Tick Box (Unchecked)</span>
+                              <span className="text-[#605E5C]">☐</span>
+                            </button>
+                            <button
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                onInsertTickBox('checked');
+                                setOpenMenu(null);
+                              }}
+                              className="w-full px-3 py-1.5 text-left text-xs hover:bg-[#F3F2F1] flex items-center justify-between cursor-pointer"
+                            >
+                              <span>Tick Box (Checked)</span>
+                              <span className="text-[#185ABD]">☑</span>
+                            </button>
+                            <div className="border-t border-[#EDEBE9] my-1" />
+                            <button
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                onInsertTickBox('checklistItem');
+                                setOpenMenu(null);
+                              }}
+                              className="w-full px-3 py-1.5 text-left text-xs hover:bg-[#F3F2F1] cursor-pointer"
+                            >
+                              Checklist Item
+                            </button>
+                            <button
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                onInsertTickBox('checklist3');
+                                setOpenMenu(null);
+                              }}
+                              className="w-full px-3 py-1.5 text-left text-xs hover:bg-[#F3F2F1] cursor-pointer"
+                            >
+                              3-Item Checklist
+                            </button>
+                          </div>
+                        )}
+                      </div>
 
                       <div className="w-px h-4 bg-[#E1DFDD] mx-1" />
 
@@ -1125,6 +1189,80 @@ export const Ribbon: React.FC<RibbonProps> = ({
                             </button>
                           ))}
                         </div>
+                      </div>
+                    )}
+                  </div>
+                </RibbonGroup>
+
+                <RibbonGroup label="Controls">
+                  <div className="relative flex items-center">
+                    <LargeBtn
+                      onClick={() => onInsertTickBox('inline')}
+                      title="Insert Interactive Tick Box at Cursor"
+                      icon={<CheckSquare className="w-5 h-5 text-[#185ABD]" />}
+                      label="Tick Box"
+                    />
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => toggleMenu('insertTickBox')}
+                      title="More Tick Box & Checklist Options"
+                      className="h-[60px] px-1 rounded hover:bg-[#E1DFDD]/80 flex items-center cursor-pointer"
+                    >
+                      <ChevronDown className="w-3 h-3 text-[#605E5C]" />
+                    </button>
+                    {openMenu === 'insertTickBox' && (
+                      <div className="absolute left-0 top-16 bg-white border border-[#D2D0CE] rounded shadow-xl py-1 z-50 w-52">
+                        <div className="px-3 py-1 text-[10.5px] font-semibold text-[#605E5C] border-b border-[#EDEBE9]">
+                          Interactive Tick Boxes
+                        </div>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            onInsertTickBox('inline');
+                            setOpenMenu(null);
+                          }}
+                          className="w-full px-3 py-1.5 text-left text-xs hover:bg-[#F3F2F1] flex items-center justify-between cursor-pointer"
+                        >
+                          <span>Insert Tick Box</span>
+                          <span className="text-[#605E5C]">☐</span>
+                        </button>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            onInsertTickBox('checked');
+                            setOpenMenu(null);
+                          }}
+                          className="w-full px-3 py-1.5 text-left text-xs hover:bg-[#F3F2F1] flex items-center justify-between cursor-pointer"
+                        >
+                          <span>Insert Checked Tick Box</span>
+                          <span className="text-[#185ABD]">☑</span>
+                        </button>
+                        <div className="border-t border-[#EDEBE9] my-1" />
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            onInsertTickBox('checklistItem');
+                            setOpenMenu(null);
+                          }}
+                          className="w-full px-3 py-1.5 text-left text-xs hover:bg-[#F3F2F1] cursor-pointer"
+                        >
+                          Checklist Item Line
+                        </button>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            onInsertTickBox('checklist3');
+                            setOpenMenu(null);
+                          }}
+                          className="w-full px-3 py-1.5 text-left text-xs hover:bg-[#F3F2F1] cursor-pointer"
+                        >
+                          Checklist (3 Items)
+                        </button>
                       </div>
                     )}
                   </div>

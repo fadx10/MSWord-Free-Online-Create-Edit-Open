@@ -60,13 +60,14 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
   const pxWidth = viewMode === 'web' ? 1120 : Math.round(widthInches * 96);
   const pxMinHeight = viewMode === 'web' ? 680 : Math.round(heightInches * 96);
-  const margins = MARGIN_INCHES[settings.margins];
+  const margins = settings.customMargins ?? MARGIN_INCHES[settings.margins];
   const padTop = viewMode === 'web' ? 40 : Math.round(margins.top * 96);
   const padRight = viewMode === 'web' ? 48 : Math.round(margins.right * 96);
   const padBottom = viewMode === 'web' ? 48 : Math.round(margins.bottom * 96);
   const padLeft = viewMode === 'web' ? 48 : Math.round(margins.left * 96);
 
   const theme = THEME_PALETTES[settings.theme];
+  const isImported = Boolean(settings.preserveImportedStyles);
 
   const borderStyle =
     settings.pageBorder === 'box'
@@ -179,6 +180,9 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
         {/* Main ContentEditable Document Surface + Non-destructive Fallback Search Overlay */}
         <div className="relative">
+          {isImported && settings.importedCss && (
+            <style>{settings.importedCss}</style>
+          )}
           {searchHighlightRects.length > 0 && (
             <div
               aria-hidden="true"
@@ -206,17 +210,116 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
             suppressContentEditableWarning
             spellCheck
             onInput={onInput}
+            onChange={(e) => {
+              const target = e.target as HTMLElement;
+              if (
+                target instanceof HTMLInputElement &&
+                target.classList.contains('word-tickbox')
+              ) {
+                if (target.checked) {
+                  target.setAttribute('checked', 'checked');
+                } else {
+                  target.removeAttribute('checked');
+                }
+                onInput();
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter' || e.shiftKey || viewMode === 'read') return;
+              const sel = window.getSelection();
+              if (!sel || sel.rangeCount === 0) return;
+              const range = sel.getRangeAt(0);
+              const anchorEl =
+                range.startContainer.nodeType === Node.ELEMENT_NODE
+                  ? (range.startContainer as HTMLElement)
+                  : range.startContainer.parentElement;
+              const checklistItem = anchorEl?.closest(
+                'p.word-checklist-item'
+              ) as HTMLParagraphElement | null;
+              if (!checklistItem || !editorRef.current?.contains(checklistItem)) return;
+
+              e.preventDefault();
+
+              const clone = checklistItem.cloneNode(true) as HTMLElement;
+              clone.querySelectorAll('.word-tickbox-wrap').forEach((w) => w.remove());
+              const itemText = (clone.textContent ?? '').replace(/\u00a0/g, ' ').trim();
+
+              if (!itemText) {
+                checklistItem.classList.remove('word-checklist-item');
+                checklistItem.querySelectorAll('.word-tickbox-wrap').forEach((w) => w.remove());
+                checklistItem.innerHTML = '<br />';
+                const exitRange = document.createRange();
+                exitRange.selectNodeContents(checklistItem);
+                exitRange.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(exitRange);
+                onInput();
+                return;
+              }
+
+              if (!range.collapsed) {
+                range.deleteContents();
+              }
+
+              const tailRange = document.createRange();
+              tailRange.setStart(range.endContainer, range.endOffset);
+              tailRange.setEnd(checklistItem, checklistItem.childNodes.length);
+              const trailingFrag = tailRange.extractContents();
+
+              const nextItem = document.createElement('p');
+              nextItem.className = 'word-checklist-item';
+              const wrap = document.createElement('span');
+              wrap.className = 'word-tickbox-wrap';
+              wrap.setAttribute('contenteditable', 'false');
+              const cb = document.createElement('input');
+              cb.type = 'checkbox';
+              cb.className = 'word-tickbox';
+              cb.setAttribute('aria-label', 'Tick box');
+              wrap.appendChild(cb);
+
+              nextItem.appendChild(wrap);
+              const spaceNode = document.createTextNode('\u00a0');
+              nextItem.appendChild(spaceNode);
+
+              const trailingText = (trailingFrag.textContent ?? '')
+                .replace(/\u00a0/g, '')
+                .trim();
+              if (trailingText) {
+                nextItem.appendChild(trailingFrag);
+              }
+
+              checklistItem.after(nextItem);
+
+              const caretRange = document.createRange();
+              caretRange.setStart(spaceNode, spaceNode.length);
+              caretRange.collapse(true);
+              sel.removeAllRanges();
+              sel.addRange(caretRange);
+
+              onInput();
+            }}
             onKeyUp={onSelectionChange}
             onMouseUp={onSelectionChange}
             onContextMenu={onContextMenu}
             style={{
-              fontFamily: theme.fontBody,
-              lineHeight: settings.lineSpacing,
+              fontFamily: isImported
+                ? settings.importedBaseStyle?.fontFamily
+                : theme.fontBody,
+              fontSize:
+                isImported && settings.importedBaseStyle?.fontSizePt
+                  ? `${settings.importedBaseStyle.fontSizePt}pt`
+                  : undefined,
+              color: isImported ? settings.importedBaseStyle?.color : undefined,
+              lineHeight: isImported
+                ? settings.importedBaseStyle?.lineHeight ?? settings.lineSpacing
+                : settings.lineSpacing,
               columnCount: settings.columns,
               columnGap: settings.columns > 1 ? '28px' : undefined,
               minHeight: `${Math.max(300, pxMinHeight - padTop - padBottom)}px`,
             }}
-            className="word-editor-content relative z-10"
+            className={`word-editor-content relative z-10 ${
+              isImported ? 'word-imported-doc' : ''
+            }`}
           />
         </div>
 

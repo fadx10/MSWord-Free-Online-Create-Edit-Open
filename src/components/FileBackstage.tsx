@@ -44,6 +44,7 @@ interface FileBackstageProps {
   onOpenLocalFile: (file: File) => void;
   onOpenRecentDoc: (doc: DocumentRecord) => void;
   onDeleteRecentDoc: (id: string) => void;
+  onClearRecentDocs: () => void;
   onExportDocx: () => void;
   onExportHtml: () => void;
   onExportTxt: () => void;
@@ -68,6 +69,7 @@ export const FileBackstage: React.FC<FileBackstageProps> = ({
   onOpenLocalFile,
   onOpenRecentDoc,
   onDeleteRecentDoc,
+  onClearRecentDocs,
   onExportDocx,
   onExportHtml,
   onExportTxt,
@@ -241,13 +243,24 @@ export const FileBackstage: React.FC<FileBackstageProps> = ({
             {/* Recent Documents */}
             {section === 'home' && (
               <section>
-                <h2 className="text-sm font-semibold text-[#242424] mb-3 flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-[#605E5C]" />
-                  <span>Recent Documents (Saved in Browser)</span>
-                </h2>
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <h2 className="text-sm font-semibold text-[#242424] flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-[#605E5C]" />
+                    <span>Recent Browser Drafts</span>
+                  </h2>
+                  {recentDocs.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={onClearRecentDocs}
+                      className="text-[11px] text-[#A4262C] hover:underline cursor-pointer"
+                    >
+                      Clear All Local Drafts
+                    </button>
+                  )}
+                </div>
                 {recentDocs.length === 0 ? (
                   <div className="bg-white border border-[#E1DFDD] rounded p-6 text-xs text-[#605E5C]">
-                    No saved documents yet. Your edits are automatically stored locally as you work.
+                    No saved drafts in this browser. Imported files from your computer are kept only for the current session and are automatically removed when you refresh or close the tab.
                   </div>
                 ) : (
                   <div className="bg-white border border-[#E1DFDD] rounded divide-y divide-[#EDEBE9]">
@@ -329,7 +342,7 @@ export const FileBackstage: React.FC<FileBackstageProps> = ({
                 Drag and drop a .docx file here
               </div>
               <p className="text-xs text-[#605E5C] mt-1 mb-4">
-                Files are parsed locally in your browser — nothing is uploaded to external servers.
+                Files stay locally in your current browser tab only — never uploaded to a server and automatically cleared on page refresh.
               </p>
               <button
                 type="button"

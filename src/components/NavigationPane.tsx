@@ -136,32 +136,44 @@ export const NavigationPane: React.FC<NavigationPaneProps> = ({
                   className="w-full text-xs outline-none bg-transparent"
                 />
               </div>
-              <div className="mt-1.5 flex items-center justify-between text-[11px] text-[#605E5C]">
-                <span className="tabular-nums">
+              <div className="mt-2 flex items-center justify-between gap-2 rounded border border-[#E1DFDD] bg-white px-2.5 py-1.5 text-[11px]">
+                <span
+                  role="status"
+                  aria-live="polite"
+                  className={`tabular-nums truncate ${
+                    findQuery.trim() && matchCount > 0
+                      ? 'font-medium text-[#242424]'
+                      : 'text-[#605E5C]'
+                  }`}
+                >
                   {findQuery.trim()
                     ? matchCount > 0
-                      ? `${Math.min(activeMatchIndex + 1, matchCount)} of ${matchCount} match${matchCount === 1 ? '' : 'es'}`
-                      : '0 matches'
+                      ? `${Math.min(activeMatchIndex + 1, matchCount)} of ${matchCount} ${matchCount === 1 ? 'result' : 'results'}`
+                      : '0 results'
                     : 'Type to search'}
                 </span>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 shrink-0">
                   <button
                     type="button"
                     onClick={() => onFindNext(-1)}
                     disabled={matchCount === 0}
-                    title="Previous match (Shift+Enter)"
-                    className="p-1 rounded hover:bg-[#E1DFDD] disabled:opacity-40 cursor-pointer"
+                    aria-label="Previous"
+                    title="Previous (Shift+Enter)"
+                    className="h-6 px-1.5 rounded border border-[#D2D0CE] bg-[#FAF9F8] hover:bg-[#EDEBE9] text-[#242424] flex items-center gap-0.5 disabled:opacity-40 disabled:cursor-default cursor-pointer transition-colors"
                   >
-                    <ChevronUp className="w-3.5 h-3.5" />
+                    <ChevronUp className="w-3 h-3" />
+                    <span className="text-[10.5px] font-medium">Prev</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => onFindNext(1)}
                     disabled={matchCount === 0}
-                    title="Next match (Enter)"
-                    className="p-1 rounded hover:bg-[#E1DFDD] disabled:opacity-40 cursor-pointer"
+                    aria-label="Next"
+                    title="Next (Enter)"
+                    className="h-6 px-1.5 rounded border border-[#D2D0CE] bg-[#FAF9F8] hover:bg-[#EDEBE9] text-[#242424] flex items-center gap-0.5 disabled:opacity-40 disabled:cursor-default cursor-pointer transition-colors"
                   >
-                    <ChevronDown className="w-3.5 h-3.5" />
+                    <span className="text-[10.5px] font-medium">Next</span>
+                    <ChevronDown className="w-3 h-3" />
                   </button>
                 </div>
               </div>

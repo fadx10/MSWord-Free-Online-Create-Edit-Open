@@ -510,3 +510,40 @@ export function applyTableBorders(
   });
 }
 
+export function isTableAutoFitContents(table: HTMLTableElement | null): boolean {
+  if (!table) return false;
+  return (
+    table.getAttribute('data-autofit') === 'contents' ||
+    table.style.tableLayout === 'auto'
+  );
+}
+
+export function toggleTableAutoFitContents(table: HTMLTableElement): boolean {
+  const nextAutoFit = !isTableAutoFitContents(table);
+
+  if (nextAutoFit) {
+    table.setAttribute('data-autofit', 'contents');
+    table.style.tableLayout = 'auto';
+    table.style.width = 'auto';
+    table.style.maxWidth = '100%';
+    table.removeAttribute('width');
+
+    table.querySelectorAll<HTMLElement>('col').forEach((col) => {
+      col.style.width = '';
+      col.removeAttribute('width');
+    });
+    table.querySelectorAll<HTMLTableCellElement>('th, td').forEach((cell) => {
+      cell.style.width = '';
+      cell.removeAttribute('width');
+    });
+  } else {
+    table.removeAttribute('data-autofit');
+    table.style.tableLayout = 'fixed';
+    table.style.width = '100%';
+    table.style.maxWidth = '';
+  }
+
+  return nextAutoFit;
+}
+
+

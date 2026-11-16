@@ -181,6 +181,21 @@ export function buildTableHtml(rows: number, cols: number): string {
   return html;
 }
 
+export function buildTickBoxHtml(checked = false): string {
+  const checkedAttr = checked ? ' checked="checked"' : '';
+  return `<span class="word-tickbox-wrap" contenteditable="false"><input type="checkbox" class="word-tickbox"${checkedAttr} aria-label="Tick box" /></span>&nbsp;`;
+}
+
+export function buildChecklistItemHtml(label = 'Task item', checked = false): string {
+  return `<p class="word-checklist-item">${buildTickBoxHtml(checked)}${escapeText(label)}</p>`;
+}
+
+export function buildChecklistGroupHtml(count = 3): string {
+  return Array.from({ length: count }, (_, idx) =>
+    buildChecklistItemHtml(`Task item ${idx + 1}`, false)
+  ).join('');
+}
+
 export function buildTableOfContentsHtml(editorEl: HTMLElement | null): string {
   const outline = extractHeadingOutline(editorEl);
   if (outline.length === 0) {

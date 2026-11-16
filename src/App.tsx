@@ -46,8 +46,11 @@ import {
 import {
   adjustParagraphLeftIndent,
   applySearchHighlights,
+  buildChecklistGroupHtml,
+  buildChecklistItemHtml,
   buildTableHtml,
   buildTableOfContentsHtml,
+  buildTickBoxHtml,
   computeDocumentStats,
   computePaginationMetrics,
   extractHeadingOutline,
@@ -63,13 +66,15 @@ import {
   getSelectedTable,
   getSelectedTableCells,
   getTableBorderState,
+  isTableAutoFitContents,
   mergeTableCells,
   splitTableCells,
+  toggleTableAutoFitContents,
   unmergeCell,
 } from './utils/tableHelpers';
 
-const STORAGE_RECENT_KEY = 'word_online_recent_docs_v1';
-const STORAGE_ACTIVE_ID_KEY = 'word_online_active_id_v1';
+const STORAGE_RECENT_KEY = 'word_online_recent_docs_v2';
+const STORAGE_ACTIVE_ID_KEY = 'word_online_active_id_v2';
 const STORAGE_AUTOSAVE_KEY = 'word_online_autosave_enabled_v1';
 
 function loadAutoSavePreference(): boolean {
@@ -86,7 +91,7 @@ function createInitialDocument(): DocumentRecord {
   return {
     id: `doc-${Date.now()}`,
     title: 'Document1',
-    contentHtml: INITIAL_STARTER_HTML,
+    contentHtml: '<p><br /></p>',
     headerText: '',
     footerText: '',
     updatedAt: new Date().toISOString(),
@@ -97,27 +102,31 @@ function createInitialDocument(): DocumentRecord {
 
 function loadStoredDocuments(): { active: DocumentRecord; recent: DocumentRecord[] } {
   try {
+    // Purge legacy v1 storage so any previously opened/imported documents are removed permanently
+    localStorage.removeItem('word_online_recent_docs_v1');
+    localStorage.removeItem('word_online_active_id_v1');
+
     const raw = localStorage.getItem(STORAGE_RECENT_KEY);
-    const activeId = localStorage.getItem(STORAGE_ACTIVE_ID_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as DocumentRecord[];
       if (Array.isArray(parsed) && parsed.length > 0) {
-        const found = parsed.find((d) => d.id === activeId) ?? parsed[0];
+        // Never restore imported files across page refreshes
+        const sanitizedRecent = parsed.filter(
+          (d) => !d.isImported && !d.settings?.preserveImportedStyles
+        );
+        if (sanitizedRecent.length !== parsed.length) {
+          localStorage.setItem(STORAGE_RECENT_KEY, JSON.stringify(sanitizedRecent));
+        }
         return {
-          active: {
-            ...found,
-            settings: { ...DEFAULT_DOCUMENT_SETTINGS, ...(found.settings || {}) },
-            comments: Array.isArray(found.comments) ? found.comments : [],
-          },
-          recent: parsed,
+          active: createInitialDocument(),
+          recent: sanitizedRecent,
         };
       }
     }
   } catch {
-    // Fallback to initial doc
+    // Fallback to clean initial doc
   }
-  const initial = createInitialDocument();
-  return { active: initial, recent: [initial] };
+  return { active: createInitialDocument(), recent: [] };
 }
 
 export default function App() {
@@ -133,11 +142,11 @@ export default function App() {
   const [zoom, setZoom] = useState(100);
   const [authorName, setAuthorName] = useState('Word User');
   const [lastSavedText, setLastSavedText] = useState(
-    initialAutoSave ? 'Saved locally' : 'Auto-save paused'
+    initialAutoSave ? 'Ready' : 'Auto-save paused'
   );
 
-  // Backstage & side panes
-  const [backstageOpen, setBackstageOpen] = useState(false);
+  // Backstage & side panes — open on the File section by default
+  const [backstageOpen, setBackstageOpen] = useState(true);
   const [backstageSection, setBackstageSection] = useState<BackstageSection>('home');
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [navSubTab, setNavSubTab] = useState<'outline' | 'find' | 'replace'>('outline');
@@ -172,6 +181,7 @@ export default function App() {
     selectedTableRows: HTMLTableRowElement[];
     selectedTableCells: HTMLTableCellElement[];
     activeColumnLabel: string;
+    tableAutoFit: boolean;
   } | null>(null);
 
   // Find & Replace
@@ -270,9 +280,14 @@ export default function App() {
   const getPrintablePageHeightPx = useCallback(() => {
     const dim = PAGE_DIMENSIONS_INCHES[activeDoc.settings.pageSize];
     const heightIn = activeDoc.settings.orientation === 'landscape' ? dim.width : dim.height;
-    const margins = MARGIN_INCHES[activeDoc.settings.margins];
+    const margins = activeDoc.settings.customMargins ?? MARGIN_INCHES[activeDoc.settings.margins];
     return Math.max(300, (heightIn - margins.top - margins.bottom) * 96);
-  }, [activeDoc.settings.margins, activeDoc.settings.orientation, activeDoc.settings.pageSize]);
+  }, [
+    activeDoc.settings.customMargins,
+    activeDoc.settings.margins,
+    activeDoc.settings.orientation,
+    activeDoc.settings.pageSize,
+  ]);
 
   // Hydrate contentEditable only when switching documents
   useEffect(() => {
@@ -308,9 +323,15 @@ export default function App() {
 
   const persistDocumentToLocalStorage = useCallback(
     (doc: DocumentRecord, notifyToast: boolean) => {
+      if (doc.isImported || doc.settings?.preserveImportedStyles) {
+        setLastSavedText('Session only (cleared on refresh)');
+        return;
+      }
       try {
         setRecentDocs((prev) => {
-          const filtered = prev.filter((d) => d.id !== doc.id);
+          const filtered = prev.filter(
+            (d) => d.id !== doc.id && !d.isImported && !d.settings?.preserveImportedStyles
+          );
           const updated = [doc, ...filtered].slice(0, 12);
           localStorage.setItem(STORAGE_RECENT_KEY, JSON.stringify(updated));
           localStorage.setItem(STORAGE_ACTIVE_ID_KEY, doc.id);
@@ -342,7 +363,9 @@ export default function App() {
         // Ignore storage access issues
       }
       if (enabled) {
-        persistDocumentToLocalStorage(activeDoc, false);
+        if (!activeDoc.isImported) {
+          persistDocumentToLocalStorage(activeDoc, false);
+        }
         showToast('Auto-save to local storage enabled');
       } else {
         setLastSavedText('Auto-save paused');
@@ -353,11 +376,20 @@ export default function App() {
   );
 
   const handleManualSaveLocal = useCallback(() => {
+    if (activeDoc.isImported || activeDoc.settings?.preserveImportedStyles) {
+      showToast('Imported files are session-only for privacy — use Save (.docx) to download a copy');
+      return;
+    }
     persistDocumentToLocalStorage(activeDoc, true);
-  }, [activeDoc, persistDocumentToLocalStorage]);
+  }, [activeDoc, persistDocumentToLocalStorage, showToast]);
 
-  // Persist active & recent docs to localStorage when auto-save is enabled
+  // Persist active & recent docs to localStorage when auto-save is enabled (never imported files)
   useEffect(() => {
+    if (activeDoc.isImported || activeDoc.settings?.preserveImportedStyles) {
+      setLastSavedText('Session only (cleared on refresh)');
+      return;
+    }
+
     const contentChanged =
       lastSavedContentRef.current.id === activeDoc.id &&
       (lastSavedContentRef.current.contentHtml !== activeDoc.contentHtml ||
@@ -389,7 +421,13 @@ export default function App() {
     setStats(computeDocumentStats(el, printableH));
     setCurrentPage(pagination.currentPage);
     setHeadings(extractHeadingOutline(el));
-    setLastSavedText(autoSaveEnabled ? 'Saving...' : 'Unsaved changes');
+    setLastSavedText(
+      activeDoc.isImported || activeDoc.settings?.preserveImportedStyles
+        ? 'Session only (cleared on refresh)'
+        : autoSaveEnabled
+          ? 'Saving...'
+          : 'Unsaved changes'
+    );
 
     setActiveDoc((prev) => ({
       ...prev,
@@ -402,7 +440,7 @@ export default function App() {
       return [...prev.slice(-49), html];
     });
     setRedoStack([]);
-  }, [autoSaveEnabled, getPrintablePageHeightPx]);
+  }, [activeDoc.isImported, activeDoc.settings?.preserveImportedStyles, autoSaveEnabled, getPrintablePageHeightPx]);
 
   const saveSelection = useCallback(() => {
     const sel = window.getSelection();
@@ -577,6 +615,21 @@ export default function App() {
       updateFormattingState();
     },
     [refreshEditorDerivedState, restoreSelection, updateFormattingState]
+  );
+
+  const handleInsertTickBox = useCallback(
+    (variant: 'inline' | 'checked' | 'checklistItem' | 'checklist3') => {
+      if (variant === 'inline') {
+        insertHtmlAtCursor(buildTickBoxHtml(false));
+      } else if (variant === 'checked') {
+        insertHtmlAtCursor(buildTickBoxHtml(true));
+      } else if (variant === 'checklistItem') {
+        insertHtmlAtCursor(buildChecklistItemHtml('Task item', false));
+      } else {
+        insertHtmlAtCursor(buildChecklistGroupHtml(3));
+      }
+    },
+    [insertHtmlAtCursor]
   );
 
   const applyFontFamily = useCallback(
@@ -827,17 +880,22 @@ export default function App() {
           id: `doc-${Date.now()}`,
           title: imported.title,
           contentHtml: imported.contentHtml,
-          headerText: '',
-          footerText: '',
+          headerText: imported.headerText ?? '',
+          footerText: imported.footerText ?? '',
           updatedAt: new Date().toISOString(),
-          settings: { ...DEFAULT_DOCUMENT_SETTINGS },
+          settings: {
+            ...DEFAULT_DOCUMENT_SETTINGS,
+            ...(imported.settings ?? {}),
+          },
           comments: [],
+          isImported: true,
         };
         setActiveDoc(newDoc);
         setUndoStack([imported.contentHtml]);
         setRedoStack([]);
+        setLastSavedText('Session only (cleared on refresh)');
         setBackstageOpen(false);
-        showToast(`Opened "${file.name}"`);
+        showToast(`Opened "${file.name}" (session-only — cleared on refresh)`);
       } catch (err) {
         showToast(
           `Could not open file: ${err instanceof Error ? err.message : 'Unsupported format'}`
@@ -910,6 +968,7 @@ export default function App() {
         | 'mergeCells'
         | 'unmergeCells'
         | 'splitCells'
+        | 'toggleAutoFitContents'
         | 'sortAlphaAsc'
         | 'sortAlphaDesc'
         | 'sortNumAsc'
@@ -985,6 +1044,13 @@ export default function App() {
         });
         setModal('splitCells');
         return;
+      } else if (action === 'toggleAutoFitContents') {
+        const enabled = toggleTableAutoFitContents(table);
+        showToast(
+          enabled
+            ? 'Table Layout: Auto-Fit to Contents enabled'
+            : 'Table Layout: Fixed full-width columns restored'
+        );
       } else if (
         action === 'sortAlphaAsc' ||
         action === 'sortAlphaDesc' ||
@@ -1317,7 +1383,16 @@ export default function App() {
   const updateSettings = useCallback((patch: Partial<DocumentSettings>) => {
     setActiveDoc((prev) => ({
       ...prev,
-      settings: { ...prev.settings, ...patch },
+      settings: {
+        ...prev.settings,
+        ...patch,
+        ...(patch.margins !== undefined && patch.customMargins === undefined
+          ? { customMargins: undefined }
+          : {}),
+        ...(patch.theme !== undefined && patch.preserveImportedStyles === undefined
+          ? { preserveImportedStyles: false }
+          : {}),
+      },
     }));
   }, []);
 
@@ -1481,11 +1556,24 @@ export default function App() {
         category: 'Layout',
         action: handleToggleFirstLineIndent,
       },
+      {
+        id: 'insert-tick-box',
+        label: 'Insert Tick Box',
+        category: 'Insert',
+        action: () => handleInsertTickBox('inline'),
+      },
+      {
+        id: 'insert-checklist-item',
+        label: 'Insert Checklist Item',
+        category: 'Insert',
+        action: () => handleInsertTickBox('checklistItem'),
+      },
     ],
     [
       activeDoc.settings.showRuler,
       handleAdjustLeftIndent,
       handleExportDocx,
+      handleInsertTickBox,
       handleToggleFirstLineIndent,
       handleToggleReadAloud,
       insertHtmlAtCursor,
@@ -1670,6 +1758,7 @@ export default function App() {
             )
           }
           onInsertSymbol={(sym) => insertHtmlAtCursor(sym)}
+          onInsertTickBox={handleInsertTickBox}
           onOpenDrawPad={() => {
             saveSelection();
             setModal('drawPad');
@@ -1718,6 +1807,7 @@ export default function App() {
         <HorizontalRuler
           pageWidthInches={pageWidthInches}
           margins={activeDoc.settings.margins}
+          customMargins={activeDoc.settings.customMargins}
           zoom={zoom}
         />
       )}
@@ -1752,6 +1842,7 @@ export default function App() {
           <VerticalRuler
             pageHeightInches={pageHeightInches}
             margins={activeDoc.settings.margins}
+            customMargins={activeDoc.settings.customMargins}
             zoom={zoom}
           />
         )}
@@ -1829,6 +1920,7 @@ export default function App() {
               selectedTableRows,
               selectedTableCells,
               activeColumnLabel,
+              tableAutoFit: isTableAutoFitContents(table),
             });
           }}
           onDropFile={(file) => {
@@ -1892,6 +1984,7 @@ export default function App() {
           hasMergedCell={contextMenu.selectedTableCells.some(
             (c) => (c.colSpan || 1) > 1 || (c.rowSpan || 1) > 1
           )}
+          tableAutoFit={contextMenu.tableAutoFit}
           onClose={() => setContextMenu(null)}
           onCut={handleCut}
           onCopy={handleCopy}
@@ -1907,6 +2000,7 @@ export default function App() {
             setNavSubTab('find');
             if (q) setFindQuery(q);
           }}
+          onInsertTickBox={() => handleInsertTickBox('inline')}
           onTableAction={handleTableAction}
         />
       )}
@@ -1940,6 +2034,12 @@ export default function App() {
               localStorage.setItem(STORAGE_RECENT_KEY, JSON.stringify(next));
               return next;
             });
+          }}
+          onClearRecentDocs={() => {
+            setRecentDocs([]);
+            localStorage.removeItem(STORAGE_RECENT_KEY);
+            localStorage.removeItem(STORAGE_ACTIVE_ID_KEY);
+            showToast('Cleared saved browser documents');
           }}
           onExportDocx={handleExportDocx}
           onExportHtml={() => {

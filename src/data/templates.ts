@@ -31,7 +31,7 @@ export const WORD_TEMPLATES: WordTemplate[] = [
     description: 'Executive summary, KPI table, and structured findings.',
     accentColor: '#0F6CBD',
     headerText: 'Q4 Strategic Operations Review',
-    footerText: 'Confidential — Internal Distribution',
+    footerText: 'Internal Operations Review',
     settings: {
       margins: 'normal',
       theme: 'office',

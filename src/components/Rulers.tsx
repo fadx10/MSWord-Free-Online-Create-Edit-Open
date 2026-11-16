@@ -1,20 +1,22 @@
 import React from 'react';
-import { MARGIN_INCHES, MarginPreset } from '../types/word';
+import { CustomMarginsInches, MARGIN_INCHES, MarginPreset } from '../types/word';
 
 interface HorizontalRulerProps {
   pageWidthInches: number;
   margins: MarginPreset;
+  customMargins?: CustomMarginsInches;
   zoom: number;
 }
 
 export const HorizontalRuler: React.FC<HorizontalRulerProps> = ({
   pageWidthInches,
   margins,
+  customMargins,
   zoom,
 }) => {
   const pxPerInch = 96 * (zoom / 100);
   const totalWidth = pageWidthInches * pxPerInch;
-  const margin = MARGIN_INCHES[margins];
+  const margin = customMargins ?? MARGIN_INCHES[margins];
   const leftMarginPx = margin.left * pxPerInch;
   const rightMarginPx = margin.right * pxPerInch;
   const printableInches = pageWidthInches - margin.left - margin.right;
@@ -95,17 +97,19 @@ export const HorizontalRuler: React.FC<HorizontalRulerProps> = ({
 interface VerticalRulerProps {
   pageHeightInches: number;
   margins: MarginPreset;
+  customMargins?: CustomMarginsInches;
   zoom: number;
 }
 
 export const VerticalRuler: React.FC<VerticalRulerProps> = ({
   pageHeightInches,
   margins,
+  customMargins,
   zoom,
 }) => {
   const pxPerInch = 96 * (zoom / 100);
   const totalHeight = pageHeightInches * pxPerInch;
-  const margin = MARGIN_INCHES[margins];
+  const margin = customMargins ?? MARGIN_INCHES[margins];
   const topMarginPx = margin.top * pxPerInch;
   const bottomMarginPx = margin.bottom * pxPerInch;
 

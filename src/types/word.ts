@@ -17,8 +17,23 @@ export type ViewMode = 'print' | 'web' | 'read';
 export type PageBorderStyle = 'none' | 'box' | 'shadow' | 'double';
 export type ThemePreset = 'office' | 'facet' | 'integral' | 'editorial';
 
+export interface ImportedBaseStyle {
+  fontFamily?: string;
+  fontSizePt?: number;
+  color?: string;
+  lineHeight?: number;
+}
+
+export interface CustomMarginsInches {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
 export interface DocumentSettings {
   margins: MarginPreset;
+  customMargins?: CustomMarginsInches;
   pageSize: PageSize;
   orientation: Orientation;
   pageColor: string;
@@ -31,6 +46,9 @@ export interface DocumentSettings {
   showMarginGuides: boolean;
   showNavigationPane: boolean;
   showHeaderFooter: boolean;
+  preserveImportedStyles?: boolean;
+  importedBaseStyle?: ImportedBaseStyle;
+  importedCss?: string;
 }
 
 export interface DocumentComment {
@@ -51,6 +69,7 @@ export interface DocumentRecord {
   updatedAt: string;
   settings: DocumentSettings;
   comments: DocumentComment[];
+  isImported?: boolean;
 }
 
 export interface DocumentStats {

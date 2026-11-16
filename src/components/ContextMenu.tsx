@@ -20,6 +20,9 @@ import {
   Type,
   Underline,
   Volume2,
+  Check,
+  CheckSquare,
+  StretchHorizontal,
 } from 'lucide-react';
 
 interface ContextMenuProps {
@@ -31,6 +34,7 @@ interface ContextMenuProps {
   selectedRowCount?: number;
   selectedCellCount?: number;
   hasMergedCell?: boolean;
+  tableAutoFit?: boolean;
   onClose: () => void;
   onCut: () => void;
   onCopy: () => void;
@@ -42,6 +46,7 @@ interface ContextMenuProps {
   onAddComment: () => void;
   onReadSelection: () => void;
   onSearchSelection: (query: string) => void;
+  onInsertTickBox: () => void;
   onTableAction: (
     action:
       | 'addRow'
@@ -52,6 +57,7 @@ interface ContextMenuProps {
       | 'mergeCells'
       | 'unmergeCells'
       | 'splitCells'
+      | 'toggleAutoFitContents'
       | 'sortAlphaAsc'
       | 'sortAlphaDesc'
       | 'sortNumAsc'
@@ -68,6 +74,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   selectedRowCount = 0,
   selectedCellCount = 1,
   hasMergedCell = false,
+  tableAutoFit = false,
   onClose,
   onCut,
   onCopy,
@@ -79,6 +86,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   onAddComment,
   onReadSelection,
   onSearchSelection,
+  onInsertTickBox,
   onTableAction,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -103,7 +111,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
 
   // Clamp position within viewport
   const left = Math.min(x, window.innerWidth - 260);
-  const top = Math.min(y, window.innerHeight - (insideTable ? 620 : 400));
+  const top = Math.min(y, window.innerHeight - (insideTable ? 680 : 400));
 
   const items = [
     {
@@ -152,6 +160,12 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
       icon: <Eraser className="w-3.5 h-3.5 text-[#A4262C]" />,
       action: onClearFormatting,
     },
+    {
+      id: 'tickbox',
+      label: 'Insert Tick Box',
+      icon: <CheckSquare className="w-3.5 h-3.5 text-[#185ABD]" />,
+      action: onInsertTickBox,
+    },
   ];
 
   const visibleItems = filter.trim()
@@ -162,7 +176,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
     <div
       ref={menuRef}
       style={{ left: `${Math.max(8, left)}px`, top: `${Math.max(8, top)}px` }}
-      className="no-print fixed z-50 w-60 bg-white rounded-md shadow-xl border border-[#D2D0CE] py-1.5 text-xs text-[#242424] select-none"
+      className="no-print fixed z-50 w-60 max-h-[calc(100vh-16px)] overflow-y-auto bg-white rounded-md shadow-xl border border-[#D2D0CE] py-1.5 text-xs text-[#242424] select-none"
     >
       {/* Top Quick Search Box (matching screenshot!) */}
       <div className="px-2 pb-1.5 border-b border-[#EDEBE9]">
@@ -375,6 +389,35 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
             >
               <SplitSquareHorizontal className="w-3.5 h-3.5 text-[#185ABD]" />
               <span>Split Cells...</span>
+            </button>
+          </div>
+
+          <div className="border-t border-[#EDEBE9] mt-1 pt-1">
+            <div className="px-3 py-0.5 text-[10px] font-semibold text-[#605E5C]">
+              Table Layout
+            </div>
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={tableAutoFit}
+              onClick={() => {
+                onTableAction('toggleAutoFitContents');
+                onClose();
+              }}
+              title="Toggle Auto-Fit to Contents to size columns based on cell text"
+              className={`w-full px-3 py-1 text-left flex items-center justify-between cursor-pointer ${
+                tableAutoFit
+                  ? 'bg-[#EBF3FC] text-[#0F6CBD] font-medium'
+                  : 'hover:bg-[#F3F2F1] text-[#242424]'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <StretchHorizontal className="w-3.5 h-3.5 text-[#185ABD]" />
+                <span>Auto-Fit to Contents</span>
+              </span>
+              {tableAutoFit && (
+                <Check className="w-3.5 h-3.5 text-[#0F6CBD] shrink-0" />
+              )}
             </button>
           </div>
 

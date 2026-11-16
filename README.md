@@ -5,6 +5,9 @@
 [![Vite](https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white)](https://vite.dev/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![DOCX](https://img.shields.io/badge/Format-.docx%20%7C%20HTML%20%7C%20PDF-107C41)](#import--export-formats)
+[![Live App](https://img.shields.io/badge/Live_App-Use_Online_Free-185ABD)](https://digitalphablet.com/ms-office-online-free/)
+
+> **Live Public URL:** Use it free directly in your browser at **[https://digitalphablet.com/ms-office-online-free/](https://digitalphablet.com/ms-office-online-free/)**
 
 **Word Online** is a free, open-source, browser-based **Microsoft Word document editor** that lets anyone **create, open, edit, format, and export `.docx` files** directly in the browser—with no installation, no account, and no server uploads.
 
@@ -39,10 +42,10 @@ All file parsing and generation runs **100% client-side in your browser**:
 
 | Action | Supported Formats | Engine |
 | :--- | :--- | :--- |
-| **Open / Import** | `.docx`, `.html`, `.htm`, `.md`, `.txt` | [`mammoth`](https://www.npmjs.com/package/mammoth) + `DOMParser` |
+| **Open / Import** | `.docx`, `.html`, `.htm`, `.md`, `.txt` | Style-preserving OOXML parser ([`jszip`](https://www.npmjs.com/package/jszip)) + [`mammoth`](https://www.npmjs.com/package/mammoth) fallback |
 | **Download / Export** | `.docx` (OpenXML), `.html`, `.txt` | [`docx`](https://www.npmjs.com/package/docx) |
 | **Print / PDF** | Clean print-ready pages | Dedicated `@media print` stylesheet |
-| **Auto-Save** | Recent documents & settings | Browser `localStorage` |
+| **Auto-Save** | Recent documents & settings (toggleable in **File → Options**) | Browser `localStorage` |
 
 ---
 
@@ -117,7 +120,9 @@ npm run dev
     │   └── templates.ts         # Starter document & 6 built-in Word templates
     ├── utils/
     │   ├── docxEngine.ts        # .docx/.html/.md/.txt import & OpenXML .docx export
-    │   └── editorHelpers.ts     # Word count stats, heading outline, TOC & proofing check
+    │   ├── docxImporter.ts      # Style-preserving OOXML parser for imported .docx & .html
+    │   ├── tableHelpers.ts      # Merge/split cells, table borders & Auto-Fit layout helpers
+    │   └── editorHelpers.ts     # Word count stats, indentation, search highlights & proofing
     └── components/
         ├── TitleBar.tsx         # Blue Word title bar, QAT & command search
         ├── Ribbon.tsx           # 9-tab Microsoft Word Fluent Ribbon
