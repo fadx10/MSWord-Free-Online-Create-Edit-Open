@@ -1,0 +1,6 @@
+{
+  "name": "Word Online",
+  "description": "Free online Microsoft Word-compatible document editor to create, open, edit, format, and export .docx documents in the browser.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

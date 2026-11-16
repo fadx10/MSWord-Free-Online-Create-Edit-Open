@@ -1,0 +1,265 @@
+@import "tailwindcss";
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    font-family: 'Segoe UI', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+}
+
+/* Crisp Office-style thin scrollbars */
+.office-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.office-scroll::-webkit-scrollbar-track {
+  background: #f3f2f1;
+}
+
+.office-scroll::-webkit-scrollbar-thumb {
+  background: #c8c6c4;
+  border: 2px solid #f3f2f1;
+  border-radius: 5px;
+}
+
+.office-scroll::-webkit-scrollbar-thumb:hover {
+  background: #a19f9d;
+}
+
+/* Editable Word Page Content Styling */
+.word-editor-content {
+  outline: none;
+  color: #1b1a19;
+  font-family: 'Calibri', 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+  font-size: 11pt;
+  line-height: 1.15;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.word-editor-content p {
+  margin-top: 0;
+  margin-bottom: 8pt;
+}
+
+.word-editor-content h1 {
+  font-size: 20pt;
+  font-weight: 400;
+  color: #0f6cbd;
+  margin-top: 12pt;
+  margin-bottom: 4pt;
+  line-height: 1.2;
+}
+
+.word-editor-content h2 {
+  font-size: 16pt;
+  font-weight: 400;
+  color: #0f6cbd;
+  margin-top: 10pt;
+  margin-bottom: 4pt;
+  line-height: 1.25;
+}
+
+.word-editor-content h3 {
+  font-size: 13pt;
+  font-weight: 600;
+  color: #104a9e;
+  margin-top: 8pt;
+  margin-bottom: 3pt;
+  line-height: 1.3;
+}
+
+.word-editor-content h4.word-title {
+  font-size: 28pt;
+  font-weight: 300;
+  color: #242424;
+  margin-top: 0;
+  margin-bottom: 6pt;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.word-editor-content p.word-subtitle {
+  font-size: 14pt;
+  color: #595959;
+  margin-top: 0;
+  margin-bottom: 14pt;
+}
+
+.word-editor-content blockquote {
+  margin: 10pt 24pt;
+  padding: 6pt 14pt;
+  color: #484644;
+  font-style: italic;
+  border-top: 1px solid #e1dfdd;
+  border-bottom: 1px solid #e1dfdd;
+  background-color: #faf9f8;
+}
+
+.word-editor-content ul {
+  list-style-type: disc;
+  margin: 4pt 0 8pt 24pt;
+  padding-left: 12pt;
+}
+
+.word-editor-content ol {
+  list-style-type: decimal;
+  margin: 4pt 0 8pt 24pt;
+  padding-left: 12pt;
+}
+
+.word-editor-content li {
+  margin-bottom: 3pt;
+}
+
+.word-editor-content a {
+  color: #0563c1;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.word-editor-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8pt 0 12pt 0;
+  table-layout: fixed;
+}
+
+.word-editor-content td,
+.word-editor-content th {
+  border: 1px solid #8a8886;
+  padding: 5pt 8pt;
+  vertical-align: top;
+  min-width: 36px;
+}
+
+.word-editor-content th {
+  background-color: #f3f2f1;
+  font-weight: 600;
+  text-align: left;
+}
+
+.word-editor-content hr {
+  border: none;
+  border-top: 1px solid #c8c6c4;
+  margin: 12pt 0;
+}
+
+.word-editor-content img {
+  max-width: 100%;
+  height: auto;
+  display: inline-block;
+  margin: 6pt 0;
+}
+
+.word-editor-content .word-page-break {
+  border-top: 1px dashed #8a8886;
+  margin: 18pt 0;
+  position: relative;
+  height: 1px;
+  user-select: none;
+}
+
+.word-editor-content .word-page-break::after {
+  content: 'Page Break';
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #ffffff;
+  color: #605e5c;
+  font-size: 9px;
+  padding: 0 6px;
+  letter-spacing: 0.04em;
+}
+
+.word-editor-content .word-toc {
+  border: 1px solid #edebe9;
+  background: #faf9f8;
+  padding: 10pt 14pt;
+  margin: 8pt 0 14pt 0;
+}
+
+.word-editor-content .word-callout {
+  border: 1px solid #d2d0ce;
+  background: #f3f6fb;
+  padding: 10pt 14pt;
+  margin: 8pt 0 12pt 0;
+}
+
+/* Custom zoom range slider matching MS Word status bar */
+input[type='range'].word-zoom-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 2px;
+  background: #8a8886;
+  outline: none;
+  cursor: pointer;
+}
+
+input[type='range'].word-zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 14px;
+  background: #605e5c;
+  border-radius: 1px;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+input[type='range'].word-zoom-slider::-webkit-slider-thumb:hover {
+  background: #185abd;
+}
+
+input[type='range'].word-zoom-slider::-moz-range-thumb {
+  width: 10px;
+  height: 14px;
+  background: #605e5c;
+  border: none;
+  border-radius: 1px;
+  cursor: pointer;
+}
+
+/* Print Stylesheet: print ONLY the Word page cleanly */
+@media print {
+  body {
+    background: #ffffff !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only-container {
+    background: #ffffff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  .print-page-sheet {
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 !important;
+    zoom: 1 !important;
+    width: 100% !important;
+    min-height: auto !important;
+  }
+
+  .word-page-break {
+    page-break-after: always;
+    break-after: page;
+    border: none !important;
+  }
+
+  .word-page-break::after {
+    display: none !important;
+  }
+}
