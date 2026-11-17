@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Clock,
@@ -12,9 +12,11 @@ import {
   Info,
   Printer,
   Save,
+  Search,
   Settings,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react';
 import { WORD_TEMPLATES, WordTemplate } from '../data/templates';
 import {
@@ -78,7 +80,27 @@ export const FileBackstage: React.FC<FileBackstageProps> = ({
 }) => {
   const [section, setSection] = useState<BackstageSection>(initialSection);
   const [isDragging, setIsDragging] = useState(false);
+  const [templateCategory, setTemplateCategory] = useState<string>('All');
+  const [templateQuery, setTemplateQuery] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const templateCategories = useMemo(() => {
+    const unique = Array.from(new Set(WORD_TEMPLATES.map((t) => t.category)));
+    return ['All', ...unique];
+  }, []);
+
+  const filteredTemplates = useMemo(() => {
+    const q = templateQuery.trim().toLowerCase();
+    return WORD_TEMPLATES.filter((tpl) => {
+      if (templateCategory !== 'All' && tpl.category !== templateCategory) return false;
+      if (!q) return true;
+      return (
+        tpl.name.toLowerCase().includes(q) ||
+        tpl.category.toLowerCase().includes(q) ||
+        tpl.description.toLowerCase().includes(q)
+      );
+    });
+  }, [templateCategory, templateQuery]);
 
   const navItems: Array<{ id: BackstageSection; label: string; icon: React.ReactNode }> = [
     { id: 'home', label: 'Home', icon: <Home className="w-4 h-4" /> },
@@ -199,45 +221,140 @@ export const FileBackstage: React.FC<FileBackstageProps> = ({
 
             {/* Templates Grid */}
             <section>
-              <h2 className="text-sm font-semibold text-[#242424] mb-3">Templates</h2>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-                {WORD_TEMPLATES.map((tpl) => (
-                  <button
-                    key={tpl.id}
-                    type="button"
-                    onClick={() => onCreateFromTemplate(tpl)}
-                    className="group text-left cursor-pointer"
-                  >
-                    <div className="aspect-[3/4] bg-white border border-[#D2D0CE] group-hover:border-[#185ABD] group-hover:shadow-md rounded transition-all p-3 flex flex-col justify-between overflow-hidden">
-                      <div>
-                        <div
-                          className="h-1.5 w-10 rounded-full mb-2"
-                          style={{ backgroundColor: tpl.accentColor }}
-                        />
-                        {tpl.id === 'blank' ? (
-                          <div className="h-full flex items-center justify-center pt-8">
-                            <FilePlus2 className="w-8 h-8 text-[#185ABD]/70" />
-                          </div>
-                        ) : (
-                          <div className="space-y-1.5">
-                            <div className="h-2 w-4/5 bg-[#242424]/80 rounded-sm" />
-                            <div className="h-1.5 w-3/5 bg-[#605E5C]/40 rounded-sm" />
-                            <div className="pt-2 space-y-1">
-                              <div className="h-1 w-full bg-[#D2D0CE] rounded-sm" />
-                              <div className="h-1 w-11/12 bg-[#D2D0CE] rounded-sm" />
-                              <div className="h-1 w-4/5 bg-[#D2D0CE] rounded-sm" />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      <span className="text-[10px] text-[#605E5C]">{tpl.category}</span>
-                    </div>
-                    <div className="mt-1.5 text-xs font-medium text-[#242424] group-hover:text-[#185ABD] truncate">
-                      {tpl.name}
-                    </div>
-                  </button>
-                ))}
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <h2 className="text-sm font-semibold text-[#242424]">
+                  Templates{' '}
+                  <span className="text-xs font-normal text-[#605E5C]">
+                    ({filteredTemplates.length})
+                  </span>
+                </h2>
+                <div className="relative w-full sm:w-64">
+                  <Search className="w-3.5 h-3.5 text-[#605E5C] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={templateQuery}
+                    onChange={(e) => setTemplateQuery(e.target.value)}
+                    placeholder="Search templates (e.g. invoice, resume)..."
+                    className="w-full h-7 pl-8 pr-7 text-xs bg-white border border-[#D2D0CE] rounded focus:border-[#185ABD] outline-none"
+                  />
+                  {templateQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setTemplateQuery('')}
+                      aria-label="Clear template search"
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-[#EDEBE9] text-[#605E5C] cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {/* Category Filter Pills */}
+              <div className="flex flex-wrap items-center gap-1.5 mb-4">
+                {templateCategories.map((cat) => {
+                  const active = templateCategory === cat;
+                  return (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setTemplateCategory(cat)}
+                      className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors cursor-pointer ${
+                        active
+                          ? 'bg-[#185ABD] text-white'
+                          : 'bg-white border border-[#E1DFDD] text-[#323130] hover:bg-[#F3F2F1]'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {filteredTemplates.length === 0 ? (
+                <div className="bg-white border border-dashed border-[#D2D0CE] rounded p-6 text-center text-xs text-[#605E5C]">
+                  No templates matched "{templateQuery}".{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTemplateQuery('');
+                      setTemplateCategory('All');
+                    }}
+                    className="text-[#185ABD] hover:underline font-medium cursor-pointer"
+                  >
+                    Show all templates
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                  {filteredTemplates.map((tpl) => {
+                    const hasTable = tpl.contentHtml.includes('<table');
+                    const hasChecklist = tpl.contentHtml.includes('word-tickbox');
+                    return (
+                      <button
+                        key={tpl.id}
+                        type="button"
+                        title={tpl.description}
+                        onClick={() => onCreateFromTemplate(tpl)}
+                        className="group text-left cursor-pointer flex flex-col"
+                      >
+                        <div className="aspect-[3/4] w-full bg-white border border-[#D2D0CE] group-hover:border-[#185ABD] group-hover:shadow-md rounded transition-all p-3 flex flex-col justify-between overflow-hidden">
+                          <div>
+                            <div
+                              className="h-1.5 w-10 rounded-full mb-2"
+                              style={{ backgroundColor: tpl.accentColor }}
+                            />
+                            {tpl.id === 'blank' ? (
+                              <div className="h-full flex items-center justify-center pt-8">
+                                <FilePlus2 className="w-8 h-8 text-[#185ABD]/70" />
+                              </div>
+                            ) : (
+                              <div className="space-y-1.5">
+                                <div className="h-2 w-4/5 bg-[#242424]/80 rounded-sm" />
+                                <div className="h-1.5 w-3/5 bg-[#605E5C]/40 rounded-sm" />
+                                <div className="pt-2 space-y-1">
+                                  <div className="h-1 w-full bg-[#D2D0CE] rounded-sm" />
+                                  <div className="h-1 w-11/12 bg-[#D2D0CE] rounded-sm" />
+                                  <div className="h-1 w-4/5 bg-[#D2D0CE] rounded-sm" />
+                                </div>
+                                {hasChecklist && (
+                                  <div className="pt-1.5 space-y-1">
+                                    <div className="flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-[1px] border border-[#185ABD] inline-block shrink-0" />
+                                      <div className="h-1 w-3/4 bg-[#C8C6C4] rounded-sm" />
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-[1px] border border-[#185ABD] inline-block shrink-0" />
+                                      <div className="h-1 w-2/3 bg-[#C8C6C4] rounded-sm" />
+                                    </div>
+                                  </div>
+                                )}
+                                {hasTable && !hasChecklist && (
+                                  <div className="pt-1.5 grid grid-cols-3 gap-0.5">
+                                    <div className="h-1.5 bg-[#185ABD]/20 rounded-[1px]" />
+                                    <div className="h-1.5 bg-[#185ABD]/20 rounded-[1px]" />
+                                    <div className="h-1.5 bg-[#185ABD]/20 rounded-[1px]" />
+                                    <div className="h-1.5 bg-[#EDEBE9] rounded-[1px]" />
+                                    <div className="h-1.5 bg-[#EDEBE9] rounded-[1px]" />
+                                    <div className="h-1.5 bg-[#EDEBE9] rounded-[1px]" />
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-[#605E5C]">{tpl.category}</span>
+                        </div>
+                        <div className="mt-1.5 text-xs font-medium text-[#242424] group-hover:text-[#185ABD] truncate">
+                          {tpl.name}
+                        </div>
+                        <div className="text-[10.5px] text-[#605E5C] line-clamp-2 leading-snug mt-0.5">
+                          {tpl.description}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </section>
 
             {/* Recent Documents */}

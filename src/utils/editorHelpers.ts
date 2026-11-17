@@ -149,17 +149,36 @@ export function computeDocumentStats(
 
 export function extractHeadingOutline(editorEl: HTMLElement | null): HeadingOutlineItem[] {
   if (!editorEl) return [];
-  const headings = editorEl.querySelectorAll('h1, h2, h3, h4.word-title');
+  const headings = editorEl.querySelectorAll('h1, h2, h3, h4, h5, h6');
   const items: HeadingOutlineItem[] = [];
+  const seenIds = new Set<string>();
+
   headings.forEach((h, idx) => {
     const text = (h.textContent || '').trim();
     if (!text) return;
-    if (!h.id) {
-      h.id = `doc-heading-${idx}`;
-    }
+
     const tag = h.tagName.toLowerCase();
-    const level: 1 | 2 | 3 = tag === 'h2' ? 2 : tag === 'h3' ? 3 : 1;
-    items.push({ id: h.id, text, level });
+    const isWordTitle = tag === 'h4' && h.classList.contains('word-title');
+
+    let id = h.id;
+    if (!id || seenIds.has(id)) {
+      id = `doc-heading-${idx}`;
+      h.id = id;
+    }
+    seenIds.add(id);
+
+    const level: 1 | 2 | 3 | 4 = isWordTitle
+      ? 1
+      : tag === 'h1'
+        ? 1
+        : tag === 'h2'
+          ? 2
+          : tag === 'h3'
+            ? 3
+            : 4;
+
+    const tagLabel = isWordTitle ? 'Title' : tag.toUpperCase();
+    items.push({ id, text, level, tagLabel });
   });
   return items;
 }

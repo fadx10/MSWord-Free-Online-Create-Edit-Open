@@ -31,6 +31,8 @@ interface ContextMenuProps {
   selectedText: string;
   insideTable: boolean;
   activeColumnLabel?: string;
+  detectedColumnType?: 'numeric' | 'alphabetical';
+  sortableRowCount?: number;
   selectedRowCount?: number;
   selectedCellCount?: number;
   hasMergedCell?: boolean;
@@ -58,6 +60,8 @@ interface ContextMenuProps {
       | 'unmergeCells'
       | 'splitCells'
       | 'toggleAutoFitContents'
+      | 'sortAutoAsc'
+      | 'sortAutoDesc'
       | 'sortAlphaAsc'
       | 'sortAlphaDesc'
       | 'sortNumAsc'
@@ -71,6 +75,8 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   selectedText,
   insideTable,
   activeColumnLabel,
+  detectedColumnType = 'alphabetical',
+  sortableRowCount = 0,
   selectedRowCount = 0,
   selectedCellCount = 1,
   hasMergedCell = false,
@@ -422,55 +428,157 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
           </div>
 
           <div className="border-t border-[#EDEBE9] mt-1 pt-1">
-            <div className="px-3 py-0.5 text-[10px] font-semibold text-[#605E5C] truncate">
-              Sort {selectedRowCount > 1 ? `${selectedRowCount} Selected Rows` : 'Rows'} by{' '}
-              {activeColumnLabel || 'Column'}
+            <div className="px-3 py-0.5 flex items-center justify-between gap-1.5">
+              <span className="text-[10px] font-semibold text-[#605E5C] truncate">
+                Sort {selectedRowCount > 1 ? `${selectedRowCount} Rows` : 'Table'} by{' '}
+                {activeColumnLabel || 'Column'}
+              </span>
+              <span
+                className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold shrink-0 ${
+                  detectedColumnType === 'numeric'
+                    ? 'bg-[#ECFDF3] text-[#107C41]'
+                    : 'bg-[#EBF3FC] text-[#185ABD]'
+                }`}
+                title={
+                  detectedColumnType === 'numeric'
+                    ? 'Detected numeric/currency values in this column'
+                    : 'Detected alphabetical text values in this column'
+                }
+              >
+                {detectedColumnType === 'numeric' ? 'Auto: 0–9' : 'Auto: A–Z'}
+              </span>
             </div>
+
+            {/* Automatic Column-Aware Sort */}
+            <div className="px-2 pt-1 space-y-1">
+              <button
+                type="button"
+                disabled={sortableRowCount < 2}
+                onClick={() => {
+                  onTableAction('sortAutoAsc');
+                  onClose();
+                }}
+                title={
+                  sortableRowCount < 2
+                    ? 'Need at least 2 data rows to sort'
+                    : `Automatically sort ${detectedColumnType === 'numeric' ? 'numerically (0 → 9)' : 'alphabetically (A → Z)'}`
+                }
+                className={`w-full px-2 py-1.5 rounded border text-[11px] font-medium flex items-center justify-between ${
+                  sortableRowCount < 2
+                    ? 'border-[#EDEBE9] text-[#A19F9D] cursor-default'
+                    : 'border-[#D2D0CE] bg-[#FAF9F8] hover:bg-[#CFE4FA] hover:border-[#185ABD] text-[#242424] cursor-pointer'
+                }`}
+              >
+                <span className="flex items-center gap-1.5">
+                  {detectedColumnType === 'numeric' ? (
+                    <ArrowDown01 className="w-3.5 h-3.5 text-[#107C41] shrink-0" />
+                  ) : (
+                    <ArrowDownAZ className="w-3.5 h-3.5 text-[#185ABD] shrink-0" />
+                  )}
+                  <span>
+                    Auto Sort Ascending (
+                    {detectedColumnType === 'numeric' ? '0 → 9' : 'A → Z'})
+                  </span>
+                </span>
+              </button>
+              <button
+                type="button"
+                disabled={sortableRowCount < 2}
+                onClick={() => {
+                  onTableAction('sortAutoDesc');
+                  onClose();
+                }}
+                title={
+                  sortableRowCount < 2
+                    ? 'Need at least 2 data rows to sort'
+                    : `Automatically sort ${detectedColumnType === 'numeric' ? 'numerically (9 → 0)' : 'alphabetically (Z → A)'}`
+                }
+                className={`w-full px-2 py-1.5 rounded border text-[11px] font-medium flex items-center justify-between ${
+                  sortableRowCount < 2
+                    ? 'border-[#EDEBE9] text-[#A19F9D] cursor-default'
+                    : 'border-[#D2D0CE] bg-[#FAF9F8] hover:bg-[#CFE4FA] hover:border-[#185ABD] text-[#242424] cursor-pointer'
+                }`}
+              >
+                <span className="flex items-center gap-1.5">
+                  {detectedColumnType === 'numeric' ? (
+                    <ArrowUp10 className="w-3.5 h-3.5 text-[#107C41] shrink-0" />
+                  ) : (
+                    <ArrowUpZA className="w-3.5 h-3.5 text-[#185ABD] shrink-0" />
+                  )}
+                  <span>
+                    Auto Sort Descending (
+                    {detectedColumnType === 'numeric' ? '9 → 0' : 'Z → A'})
+                  </span>
+                </span>
+              </button>
+            </div>
+
+            {/* Manual Mode Overrides */}
             <div className="grid grid-cols-2 gap-1 px-2 py-1">
               <button
                 type="button"
+                disabled={sortableRowCount < 2}
                 onClick={() => {
                   onTableAction('sortAlphaAsc');
                   onClose();
                 }}
                 title="Sort Alphabetically (A to Z)"
-                className="px-2 py-1 rounded border border-[#E1DFDD] hover:bg-[#CFE4FA] hover:border-[#185ABD] flex items-center gap-1.5 text-[11px] cursor-pointer"
+                className={`px-2 py-1 rounded border border-[#E1DFDD] flex items-center gap-1.5 text-[11px] ${
+                  sortableRowCount < 2
+                    ? 'text-[#A19F9D] cursor-default'
+                    : 'hover:bg-[#CFE4FA] hover:border-[#185ABD] cursor-pointer'
+                }`}
               >
                 <ArrowDownAZ className="w-3.5 h-3.5 text-[#185ABD] shrink-0" />
                 <span>A → Z</span>
               </button>
               <button
                 type="button"
+                disabled={sortableRowCount < 2}
                 onClick={() => {
                   onTableAction('sortAlphaDesc');
                   onClose();
                 }}
                 title="Sort Alphabetically (Z to A)"
-                className="px-2 py-1 rounded border border-[#E1DFDD] hover:bg-[#CFE4FA] hover:border-[#185ABD] flex items-center gap-1.5 text-[11px] cursor-pointer"
+                className={`px-2 py-1 rounded border border-[#E1DFDD] flex items-center gap-1.5 text-[11px] ${
+                  sortableRowCount < 2
+                    ? 'text-[#A19F9D] cursor-default'
+                    : 'hover:bg-[#CFE4FA] hover:border-[#185ABD] cursor-pointer'
+                }`}
               >
                 <ArrowUpZA className="w-3.5 h-3.5 text-[#185ABD] shrink-0" />
                 <span>Z → A</span>
               </button>
               <button
                 type="button"
+                disabled={sortableRowCount < 2}
                 onClick={() => {
                   onTableAction('sortNumAsc');
                   onClose();
                 }}
                 title="Sort Numerically (Smallest to Largest)"
-                className="px-2 py-1 rounded border border-[#E1DFDD] hover:bg-[#CFE4FA] hover:border-[#185ABD] flex items-center gap-1.5 text-[11px] cursor-pointer"
+                className={`px-2 py-1 rounded border border-[#E1DFDD] flex items-center gap-1.5 text-[11px] ${
+                  sortableRowCount < 2
+                    ? 'text-[#A19F9D] cursor-default'
+                    : 'hover:bg-[#CFE4FA] hover:border-[#185ABD] cursor-pointer'
+                }`}
               >
                 <ArrowDown01 className="w-3.5 h-3.5 text-[#107C41] shrink-0" />
                 <span>0 → 9</span>
               </button>
               <button
                 type="button"
+                disabled={sortableRowCount < 2}
                 onClick={() => {
                   onTableAction('sortNumDesc');
                   onClose();
                 }}
                 title="Sort Numerically (Largest to Smallest)"
-                className="px-2 py-1 rounded border border-[#E1DFDD] hover:bg-[#CFE4FA] hover:border-[#185ABD] flex items-center gap-1.5 text-[11px] cursor-pointer"
+                className={`px-2 py-1 rounded border border-[#E1DFDD] flex items-center gap-1.5 text-[11px] ${
+                  sortableRowCount < 2
+                    ? 'text-[#A19F9D] cursor-default'
+                    : 'hover:bg-[#CFE4FA] hover:border-[#185ABD] cursor-pointer'
+                }`}
               >
                 <ArrowUp10 className="w-3.5 h-3.5 text-[#107C41] shrink-0" />
                 <span>9 → 0</span>

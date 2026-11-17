@@ -546,4 +546,235 @@ export function toggleTableAutoFitContents(table: HTMLTableElement): boolean {
   return nextAutoFit;
 }
 
+export type ColumnSortDataType = 'numeric' | 'alphabetical';
+export type TableSortMode =
+  | 'sortAutoAsc'
+  | 'sortAutoDesc'
+  | 'sortAlphaAsc'
+  | 'sortAlphaDesc'
+  | 'sortNumAsc'
+  | 'sortNumDesc';
+
+export function getLogicalColumnIndex(
+  table: HTMLTableElement,
+  cell: HTMLTableCellElement
+): number {
+  const map = getTableGridMap(table);
+  const rect = map.cellRects.get(cell);
+  if (rect) return rect.c1;
+  const row = cell.closest('tr');
+  return row ? Math.max(0, Array.from(row.children).indexOf(cell)) : 0;
+}
+
+export function getTableColumnHeaderLabel(
+  table: HTMLTableElement,
+  cell: HTMLTableCellElement
+): string {
+  const map = getTableGridMap(table);
+  const colIndex = getLogicalColumnIndex(table, cell);
+  const activeRow = cell.closest('tr');
+  const headerRow = table.querySelector('thead tr') || table.querySelector('tr');
+  if (headerRow && headerRow !== activeRow) {
+    const headerRowIndex = map.rows.indexOf(headerRow as HTMLTableRowElement);
+    const headerCell = headerRowIndex >= 0 ? map.grid[headerRowIndex]?.[colIndex] : null;
+    const text = (headerCell?.textContent ?? '').trim();
+    if (text) {
+      return `"${text.slice(0, 18)}${text.length > 18 ? '…' : ''}"`;
+    }
+  }
+  return `Col ${colIndex + 1}`;
+}
+
+export function getSortableTableRows(
+  table: HTMLTableElement,
+  selectedRows?: HTMLTableRowElement[]
+): HTMLTableRowElement[] {
+  if (selectedRows && selectedRows.length > 1) {
+    return selectedRows.filter((tr) => table.contains(tr) && !tr.closest('thead'));
+  }
+
+  const tbody = table.querySelector('tbody');
+  const candidateRows = tbody
+    ? Array.from(tbody.querySelectorAll<HTMLTableRowElement>(':scope > tr'))
+    : Array.from(table.querySelectorAll<HTMLTableRowElement>('tr'));
+
+  return candidateRows.filter((tr, idx) => {
+    if (tr.closest('thead')) return false;
+    if (!tbody && idx === 0 && tr.querySelector('th')) return false;
+    return true;
+  });
+}
+
+function isPlaceholderCellValue(raw: string): boolean {
+  const trimmed = raw.trim();
+  return !trimmed || /^[-–—]+$/.test(trimmed) || /^n\/?a$/i.test(trimmed);
+}
+
+function isStrictNumericString(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed || !/\d/.test(trimmed)) return false;
+  // Matches optional +/-/currency, optional parentheses for negative accounting values,
+  // digits with optional thousands commas and decimals, and optional % suffix
+  return /^[+\-$€£¥₹₩₽₺₴₦₱฿₫₪₿\s]*\(?\s*[+\-$€£¥₹₩₽₺₴₦₱฿₫₪₿\s]*\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*\)?\s*%?$/.test(
+    trimmed
+  ) || /^[+\-$€£¥₹₩₽₺₴₦₱฿₫₪₿\s]*\(?\s*[+\-$€£¥₹₩₽₺₴₦₱฿₫₪₿\s]*\d+(?:\.\d+)?\s*\)?\s*%?$/.test(trimmed);
+}
+
+function parseNumericValue(raw: string, strictOnly = false): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (strictOnly && !isStrictNumericString(trimmed)) return null;
+
+  const isAccountingNegative = /^\(.*\)$/.test(trimmed.replace(/[$€£¥₹₩₽₺₴₦₱฿₫₪₿%\s]/g, ''));
+  const cleaned = trimmed.replace(/,/g, '');
+  const match = cleaned.match(/-?\d+(?:\.\d+)?/);
+  if (!match) return null;
+  let num = Number(match[0]);
+  if (!Number.isFinite(num)) return null;
+  if (isAccountingNegative && num > 0) {
+    num = -num;
+  }
+  return num;
+}
+
+export function detectColumnSortType(
+  table: HTMLTableElement,
+  targetCell: HTMLTableCellElement,
+  selectedRows?: HTMLTableRowElement[]
+): ColumnSortDataType {
+  const map = getTableGridMap(table);
+  const colIndex = getLogicalColumnIndex(table, targetCell);
+  const rows = getSortableTableRows(table, selectedRows);
+
+  let nonEmptyCount = 0;
+  let numericCount = 0;
+
+  rows.forEach((tr) => {
+    const rIdx = map.rows.indexOf(tr);
+    if (rIdx < 0) return;
+    const cell = map.grid[rIdx]?.[colIndex];
+    const text = (cell?.textContent ?? '').trim();
+    if (isPlaceholderCellValue(text)) return;
+    nonEmptyCount++;
+    if (isStrictNumericString(text)) {
+      numericCount++;
+    }
+  });
+
+  if (nonEmptyCount > 0 && numericCount / nonEmptyCount >= 0.6) {
+    return 'numeric';
+  }
+  return 'alphabetical';
+}
+
+export interface TableSortResult {
+  sortedCount: number;
+  appliedType: ColumnSortDataType;
+  direction: 'asc' | 'desc';
+  error?: string;
+}
+
+export function sortTableRowsByColumn(
+  table: HTMLTableElement,
+  targetCell: HTMLTableCellElement,
+  mode: TableSortMode,
+  selectedRows?: HTMLTableRowElement[]
+): TableSortResult {
+  const map = getTableGridMap(table);
+  const colIndex = getLogicalColumnIndex(table, targetCell);
+  const rowsToSort = getSortableTableRows(table, selectedRows);
+  const detectedType = detectColumnSortType(table, targetCell, selectedRows);
+
+  const appliedType: ColumnSortDataType =
+    mode === 'sortNumAsc' || mode === 'sortNumDesc'
+      ? 'numeric'
+      : mode === 'sortAlphaAsc' || mode === 'sortAlphaDesc'
+        ? 'alphabetical'
+        : detectedType;
+
+  const direction: 'asc' | 'desc' =
+    mode === 'sortAutoDesc' || mode === 'sortAlphaDesc' || mode === 'sortNumDesc'
+      ? 'desc'
+      : 'asc';
+
+  if (rowsToSort.length < 2) {
+    return {
+      sortedCount: 0,
+      appliedType,
+      direction,
+      error: 'Need at least 2 data rows to sort',
+    };
+  }
+
+  // Guard against vertically merged cells across rowsToSort
+  const hasRowSpan = rowsToSort.some((tr) =>
+    Array.from(tr.children).some((c) => ((c as HTMLTableCellElement).rowSpan || 1) > 1)
+  );
+  if (hasRowSpan) {
+    return {
+      sortedCount: 0,
+      appliedType,
+      direction,
+      error: 'Unmerge vertically merged cells before sorting rows',
+    };
+  }
+
+  const rowValues = new Map<HTMLTableRowElement, string>();
+  rowsToSort.forEach((tr) => {
+    const rIdx = map.rows.indexOf(tr);
+    const cell = rIdx >= 0 ? map.grid[rIdx]?.[colIndex] : null;
+    rowValues.set(tr, (cell?.textContent ?? '').trim());
+  });
+
+  const placeholderNodes = rowsToSort.map((r) => {
+    const marker = document.createComment('sort-slot');
+    r.parentElement?.insertBefore(marker, r);
+    return marker;
+  });
+
+  const collator = new Intl.Collator(undefined, {
+    sensitivity: 'base',
+    numeric: appliedType === 'alphabetical',
+  });
+
+  const sorted = [...rowsToSort].sort((a, b) => {
+    const textA = rowValues.get(a) ?? '';
+    const textB = rowValues.get(b) ?? '';
+
+    const emptyA = isPlaceholderCellValue(textA);
+    const emptyB = isPlaceholderCellValue(textB);
+    if (emptyA && emptyB) return 0;
+    if (emptyA) return 1;
+    if (emptyB) return -1;
+
+    if (appliedType === 'numeric') {
+      const numA = parseNumericValue(textA, false);
+      const numB = parseNumericValue(textB, false);
+      if (numA === null && numB === null) {
+        const fallbackCmp = collator.compare(textA, textB);
+        return direction === 'asc' ? fallbackCmp : -fallbackCmp;
+      }
+      if (numA === null) return 1;
+      if (numB === null) return -1;
+      return direction === 'asc' ? numA - numB : numB - numA;
+    }
+
+    const cmp = collator.compare(textA, textB);
+    return direction === 'asc' ? cmp : -cmp;
+  });
+
+  sorted.forEach((sortedRow, i) => {
+    const marker = placeholderNodes[i];
+    marker.parentElement?.insertBefore(sortedRow, marker);
+    marker.remove();
+  });
+
+  return {
+    sortedCount: sorted.length,
+    appliedType,
+    direction,
+  };
+}
+
+
 

@@ -45,6 +45,7 @@ export interface DocumentSettings {
   showRuler: boolean;
   showMarginGuides: boolean;
   showNavigationPane: boolean;
+  showDocumentOutline?: boolean;
   showHeaderFooter: boolean;
   preserveImportedStyles?: boolean;
   importedBaseStyle?: ImportedBaseStyle;
@@ -84,7 +85,8 @@ export interface DocumentStats {
 export interface HeadingOutlineItem {
   id: string;
   text: string;
-  level: 1 | 2 | 3;
+  level: 1 | 2 | 3 | 4;
+  tagLabel?: string;
 }
 
 export const DEFAULT_DOCUMENT_SETTINGS: DocumentSettings = {
@@ -100,6 +102,7 @@ export const DEFAULT_DOCUMENT_SETTINGS: DocumentSettings = {
   showRuler: true,
   showMarginGuides: true,
   showNavigationPane: false,
+  showDocumentOutline: false,
   showHeaderFooter: false,
 };
 

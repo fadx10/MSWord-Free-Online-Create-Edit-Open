@@ -1,5 +1,5 @@
 import React from 'react';
-import { BookOpen, FileText, Globe, Minus, Plus } from 'lucide-react';
+import { BookOpen, FileText, Globe, ListTree, Minus, Plus } from 'lucide-react';
 import { DocumentStats, ViewMode } from '../types/word';
 
 interface StatusBarProps {
@@ -10,6 +10,9 @@ interface StatusBarProps {
   zoom: number;
   onZoomChange: (zoom: number) => void;
   onOpenWordCount: () => void;
+  showDocumentOutline: boolean;
+  headingCount: number;
+  onToggleDocumentOutline: () => void;
   autoSaveEnabled: boolean;
   onOpenOptions: () => void;
 }
@@ -22,13 +25,16 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   zoom,
   onZoomChange,
   onOpenWordCount,
+  showDocumentOutline,
+  headingCount,
+  onToggleDocumentOutline,
   autoSaveEnabled,
   onOpenOptions,
 }) => {
   return (
     <footer className="no-print h-6 bg-[#F3F2F1] border-t border-[#D2D0CE] px-3 flex items-center justify-between text-[11px] text-[#484644] select-none shrink-0">
-      {/* Left: Page, Word Count, Proofing Language */}
-      <div className="flex items-center gap-4 min-w-0">
+      {/* Left: Page, Word Count, Outline Toggle, Proofing Language */}
+      <div className="flex items-center gap-3 min-w-0">
         <button
           type="button"
           onClick={onOpenWordCount}
@@ -45,6 +51,24 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           title="Click for Word Count details"
         >
           {stats.words.toLocaleString()} {stats.words === 1 ? 'word' : 'words'}
+        </button>
+
+        <button
+          type="button"
+          onClick={onToggleDocumentOutline}
+          aria-pressed={showDocumentOutline}
+          title="Toggle Document Outline Panel"
+          className={`flex items-center gap-1 px-1.5 py-0.5 rounded whitespace-nowrap cursor-pointer transition-colors ${
+            showDocumentOutline
+              ? 'bg-[#CFE4FA] text-[#0F6CBD] font-medium'
+              : 'hover:bg-[#E1DFDD] text-[#484644]'
+          }`}
+        >
+          <ListTree className="w-3 h-3" />
+          <span>Outline</span>
+          {headingCount > 0 && (
+            <span className="text-[10px] opacity-75 tabular-nums">({headingCount})</span>
+          )}
         </button>
 
         <span className="hidden sm:inline text-[#605E5C] whitespace-nowrap">

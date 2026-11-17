@@ -106,6 +106,9 @@ interface RibbonProps {
   commentsCount: number;
   commentsOpen: boolean;
   onToggleCommentsPane: () => void;
+  footnotesCount: number;
+  footnotesOpen: boolean;
+  onToggleFootnotesPane: () => void;
   isReadingAloud: boolean;
   formatPainterActive: boolean;
   onToggleFormatPainter: () => void;
@@ -136,6 +139,7 @@ interface RibbonProps {
   onInsertPageNumber: (format: 'pageOfTotal' | 'pageOnly' | 'numberOnly' | 'remove') => void;
   onInsertDateTime: () => void;
   onInsertSymbol: (sym: string) => void;
+  onOpenSymbolDialog: () => void;
   onInsertTickBox: (variant: 'inline' | 'checked' | 'checklistItem' | 'checklist3') => void;
   onOpenDrawPad: () => void;
   onUpdateSettings: (patch: Partial<DocumentSettings>) => void;
@@ -309,6 +313,9 @@ export const Ribbon: React.FC<RibbonProps> = ({
   commentsCount,
   commentsOpen,
   onToggleCommentsPane,
+  footnotesCount,
+  footnotesOpen,
+  onToggleFootnotesPane,
   isReadingAloud,
   formatPainterActive,
   onToggleFormatPainter,
@@ -339,6 +346,7 @@ export const Ribbon: React.FC<RibbonProps> = ({
   onInsertPageNumber,
   onInsertDateTime,
   onInsertSymbol,
+  onOpenSymbolDialog,
   onInsertTickBox,
   onOpenDrawPad,
   onUpdateSettings,
@@ -1160,18 +1168,26 @@ export const Ribbon: React.FC<RibbonProps> = ({
                 </RibbonGroup>
 
                 <RibbonGroup label="Symbols">
-                  <div className="relative">
+                  <div className="relative flex items-center">
                     <LargeBtn
-                      active={openMenu === 'symbols'}
-                      onClick={() => toggleMenu('symbols')}
-                      title="Insert Symbol"
+                      onClick={onOpenSymbolDialog}
+                      title="Open Insert Symbol Gallery (Math, Currency & Emojis)"
                       icon={<Sigma className="w-5 h-5 text-[#242424]" />}
                       label="Symbol"
                     />
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => toggleMenu('symbols')}
+                      title="Quick Symbols"
+                      className="h-[60px] px-1 rounded hover:bg-[#E1DFDD]/80 flex items-center cursor-pointer"
+                    >
+                      <ChevronDown className="w-3 h-3 text-[#605E5C]" />
+                    </button>
                     {openMenu === 'symbols' && (
-                      <div className="absolute left-0 top-16 bg-white border border-[#D2D0CE] rounded shadow-xl p-2 z-50 w-52">
+                      <div className="absolute left-0 top-16 bg-white border border-[#D2D0CE] rounded shadow-xl p-2 z-50 w-56">
                         <div className="text-[11px] font-semibold text-[#605E5C] mb-1.5">
-                          Insert Symbol
+                          Quick Symbols
                         </div>
                         <div className="grid grid-cols-6 gap-1">
                           {SYMBOLS.map((sym) => (
@@ -1189,6 +1205,18 @@ export const Ribbon: React.FC<RibbonProps> = ({
                             </button>
                           ))}
                         </div>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setOpenMenu(null);
+                            onOpenSymbolDialog();
+                          }}
+                          className="mt-2 w-full py-1.5 px-2 rounded border border-[#E1DFDD] bg-[#FAF9F8] hover:bg-[#EBF3FC] hover:border-[#185ABD] text-[11px] font-medium text-[#185ABD] flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <Search className="w-3 h-3" />
+                          <span>More Symbols & Emojis...</span>
+                        </button>
                       </div>
                     )}
                   </div>
@@ -1738,6 +1766,17 @@ export const Ribbon: React.FC<RibbonProps> = ({
                     icon={<ListTree className="w-5 h-5 text-[#185ABD]" />}
                     label="Table of Contents"
                   />
+                  <LargeBtn
+                    active={Boolean(settings.showDocumentOutline)}
+                    onClick={() =>
+                      onUpdateSettings({
+                        showDocumentOutline: !settings.showDocumentOutline,
+                      })
+                    }
+                    title="Toggle Interactive Document Outline Hierarchy Panel"
+                    icon={<ListTree className="w-5 h-5 text-[#107C41]" />}
+                    label="Document Outline"
+                  />
                 </RibbonGroup>
                 <RibbonGroup label="Footnotes & Citations">
                   <LargeBtn
@@ -1745,6 +1784,17 @@ export const Ribbon: React.FC<RibbonProps> = ({
                     title="Insert Numbered Footnote"
                     icon={<Bookmark className="w-5 h-5 text-[#107C41]" />}
                     label="Insert Footnote"
+                  />
+                  <LargeBtn
+                    active={footnotesOpen}
+                    onClick={onToggleFootnotesPane}
+                    title="Open Footnotes Manager Panel to Edit, Reorder, or Remove Footnotes"
+                    icon={<ListTree className="w-5 h-5 text-[#185ABD]" />}
+                    label={
+                      footnotesCount > 0
+                        ? `Footnotes (${footnotesCount})`
+                        : 'Manage Footnotes'
+                    }
                   />
                   <LargeBtn
                     onClick={onOpenCitationDialog}
@@ -1859,37 +1909,54 @@ export const Ribbon: React.FC<RibbonProps> = ({
                 </RibbonGroup>
 
                 <RibbonGroup label="Show">
-                  <div className="flex flex-col gap-1 justify-center px-1">
-                    <label className="flex items-center gap-2 text-xs text-[#242424] cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={settings.showRuler}
-                        onChange={(e) => onUpdateSettings({ showRuler: e.target.checked })}
-                        className="accent-[#185ABD] cursor-pointer"
-                      />
-                      <Ruler className="w-3.5 h-3.5 text-[#605E5C]" />
-                      <span>Ruler</span>
-                    </label>
-                    <label className="flex items-center gap-2 text-xs text-[#242424] cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={settings.showMarginGuides}
-                        onChange={(e) => onUpdateSettings({ showMarginGuides: e.target.checked })}
-                        className="accent-[#185ABD] cursor-pointer"
-                      />
-                      <LayoutGrid className="w-3.5 h-3.5 text-[#605E5C]" />
-                      <span>Margin Guides</span>
-                    </label>
-                    <label className="flex items-center gap-2 text-xs text-[#242424] cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={settings.showNavigationPane}
-                        onChange={(e) => onUpdateSettings({ showNavigationPane: e.target.checked })}
-                        className="accent-[#185ABD] cursor-pointer"
-                      />
-                      <ListTree className="w-3.5 h-3.5 text-[#605E5C]" />
-                      <span>Navigation Pane</span>
-                    </label>
+                  <div className="flex items-center gap-2">
+                    <LargeBtn
+                      active={Boolean(settings.showDocumentOutline)}
+                      onClick={() =>
+                        onUpdateSettings({
+                          showDocumentOutline: !settings.showDocumentOutline,
+                        })
+                      }
+                      title="Toggle Interactive Document Outline Panel"
+                      icon={<ListTree className="w-5 h-5 text-[#185ABD]" />}
+                      label="Document Outline"
+                    />
+                    <div className="flex flex-col gap-1 justify-center px-1 border-l border-[#EDEBE9] pl-2">
+                      <label className="flex items-center gap-2 text-xs text-[#242424] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={settings.showRuler}
+                          onChange={(e) => onUpdateSettings({ showRuler: e.target.checked })}
+                          className="accent-[#185ABD] cursor-pointer"
+                        />
+                        <Ruler className="w-3.5 h-3.5 text-[#605E5C]" />
+                        <span>Ruler</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-[#242424] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={settings.showMarginGuides}
+                          onChange={(e) =>
+                            onUpdateSettings({ showMarginGuides: e.target.checked })
+                          }
+                          className="accent-[#185ABD] cursor-pointer"
+                        />
+                        <LayoutGrid className="w-3.5 h-3.5 text-[#605E5C]" />
+                        <span>Margin Guides</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-[#242424] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={settings.showNavigationPane}
+                          onChange={(e) =>
+                            onUpdateSettings({ showNavigationPane: e.target.checked })
+                          }
+                          className="accent-[#185ABD] cursor-pointer"
+                        />
+                        <Search className="w-3.5 h-3.5 text-[#605E5C]" />
+                        <span>Navigation Pane</span>
+                      </label>
+                    </div>
                   </div>
                 </RibbonGroup>
 

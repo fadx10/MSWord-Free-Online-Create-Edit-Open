@@ -279,6 +279,22 @@ input[type='range'].word-zoom-slider::-moz-range-thumb {
   cursor: pointer;
 }
 
+@keyframes wordHeadingFlash {
+  0% {
+    background-color: rgba(24, 90, 189, 0.2);
+    box-shadow: 0 0 0 4px rgba(24, 90, 189, 0.14);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 0 rgba(24, 90, 189, 0);
+  }
+}
+
+.word-heading-flash {
+  animation: wordHeadingFlash 1.4s ease-out;
+  border-radius: 3px;
+}
+
 /* Print Stylesheet: print ONLY the Word page cleanly */
 @media print {
   body {
