@@ -7,6 +7,7 @@ import {
   Header,
   HeadingLevel,
   ImageRun,
+  NumberFormat,
   Packer,
   PageNumber,
   PageOrientation,
@@ -23,8 +24,10 @@ import {
   DocumentSettings,
   MARGIN_INCHES,
   PAGE_DIMENSIONS_INCHES,
+  PageNumberAlignment,
+  PageNumberFormat,
 } from '../types/word';
-import { parseCssLengthToInches } from './editorHelpers';
+import { parseCssLengthToInches, stripPageNumberTokens } from './editorHelpers';
 import { getTableBorderState, isTableAutoFitContents } from './tableHelpers';
 import { importDocxWithStyles, scopeImportedHtmlStyles } from './docxImporter';
 
@@ -722,9 +725,84 @@ export async function exportHtmlToDocx(
     children.push(new Paragraph(''));
   }
 
-  const margins = MARGIN_INCHES[settings.margins];
+  const margins = settings.customMargins ?? MARGIN_INCHES[settings.margins];
   const dim = PAGE_DIMENSIONS_INCHES[settings.pageSize];
   const isLandscape = settings.orientation === 'landscape';
+  const pageNumberCfg = settings.pageNumbers;
+
+  const mapPageNumberFormat = (
+    fmt: PageNumberFormat | undefined
+  ): (typeof NumberFormat)[keyof typeof NumberFormat] | undefined => {
+    switch (fmt) {
+      case 'romanLower':
+        return NumberFormat.LOWER_ROMAN;
+      case 'romanUpper':
+        return NumberFormat.UPPER_ROMAN;
+      case 'alphaLower':
+        return NumberFormat.LOWER_LETTER;
+      case 'alphaUpper':
+        return NumberFormat.UPPER_LETTER;
+      case 'decimal':
+        return NumberFormat.DECIMAL;
+      default:
+        return undefined;
+    }
+  };
+
+  const mapPageNumberAlignment = (
+    align: PageNumberAlignment | undefined,
+    fallback: (typeof AlignmentType)[keyof typeof AlignmentType]
+  ) => {
+    switch (align) {
+      case 'left':
+        return AlignmentType.LEFT;
+      case 'center':
+        return AlignmentType.CENTER;
+      case 'right':
+        return AlignmentType.RIGHT;
+      default:
+        return fallback;
+    }
+  };
+
+  const buildHeaderFooterRuns = (text: string) =>
+    text
+      .split(/(\{PAGE\}|\{NUMPAGES\})/g)
+      .filter(Boolean)
+      .map((part) => {
+        if (part === '{PAGE}') {
+          return new TextRun({
+            children: [PageNumber.CURRENT],
+            color: '605E5C',
+            size: 18,
+          });
+        }
+        if (part === '{NUMPAGES}') {
+          return new TextRun({
+            children: [PageNumber.TOTAL_PAGES],
+            color: '605E5C',
+            size: 18,
+          });
+        }
+        return new TextRun({
+          text: part,
+          color: '605E5C',
+          size: 18,
+        });
+      });
+
+  const suppressFirstPage = pageNumberCfg?.enabled && pageNumberCfg.showOnFirstPage === false;
+  const headerAlign =
+    pageNumberCfg?.enabled && pageNumberCfg.placement === 'top'
+      ? mapPageNumberAlignment(pageNumberCfg.alignment, AlignmentType.RIGHT)
+      : AlignmentType.RIGHT;
+  const footerAlign =
+    pageNumberCfg?.enabled && pageNumberCfg.placement === 'bottom'
+      ? mapPageNumberAlignment(pageNumberCfg.alignment, AlignmentType.CENTER)
+      : AlignmentType.CENTER;
+
+  const firstHeaderText = suppressFirstPage ? stripPageNumberTokens(headerText) : headerText;
+  const firstFooterText = suppressFirstPage ? stripPageNumberTokens(footerText) : footerText;
 
   const doc = new Document({
     title,
@@ -732,6 +810,7 @@ export async function exportHtmlToDocx(
     sections: [
       {
         properties: {
+          titlePage: suppressFirstPage || undefined,
           page: {
             size: {
               width: convertInchesToTwip(isLandscape ? dim.height : dim.width),
@@ -746,6 +825,12 @@ export async function exportHtmlToDocx(
               bottom: convertInchesToTwip(margins.bottom),
               left: convertInchesToTwip(margins.left),
             },
+            pageNumbers: pageNumberCfg?.enabled
+              ? {
+                  start: Math.max(1, Math.floor(pageNumberCfg.startAt || 1)),
+                  formatType: mapPageNumberFormat(pageNumberCfg.numberFormat),
+                }
+              : undefined,
           },
         },
         headers: headerText.trim()
@@ -753,17 +838,25 @@ export async function exportHtmlToDocx(
               default: new Header({
                 children: [
                   new Paragraph({
-                    alignment: AlignmentType.RIGHT,
-                    children: [
-                      new TextRun({
-                        text: headerText,
-                        color: '605E5C',
-                        size: 18,
-                      }),
-                    ],
+                    alignment: headerAlign,
+                    children: buildHeaderFooterRuns(headerText),
                   }),
                 ],
               }),
+              ...(suppressFirstPage
+                ? {
+                    first: new Header({
+                      children: [
+                        new Paragraph({
+                          alignment: headerAlign,
+                          children: firstHeaderText
+                            ? buildHeaderFooterRuns(firstHeaderText)
+                            : [new TextRun('')],
+                        }),
+                      ],
+                    }),
+                  }
+                : {}),
             }
           : undefined,
         footers: footerText.trim()
@@ -771,34 +864,25 @@ export async function exportHtmlToDocx(
               default: new Footer({
                 children: [
                   new Paragraph({
-                    alignment: AlignmentType.CENTER,
-                    children: footerText
-                      .split(/(\{PAGE\}|\{NUMPAGES\})/g)
-                      .filter(Boolean)
-                      .map((part) => {
-                        if (part === '{PAGE}') {
-                          return new TextRun({
-                            children: [PageNumber.CURRENT],
-                            color: '605E5C',
-                            size: 18,
-                          });
-                        }
-                        if (part === '{NUMPAGES}') {
-                          return new TextRun({
-                            children: [PageNumber.TOTAL_PAGES],
-                            color: '605E5C',
-                            size: 18,
-                          });
-                        }
-                        return new TextRun({
-                          text: part,
-                          color: '605E5C',
-                          size: 18,
-                        });
-                      }),
+                    alignment: footerAlign,
+                    children: buildHeaderFooterRuns(footerText),
                   }),
                 ],
               }),
+              ...(suppressFirstPage
+                ? {
+                    first: new Footer({
+                      children: [
+                        new Paragraph({
+                          alignment: footerAlign,
+                          children: firstFooterText
+                            ? buildHeaderFooterRuns(firstFooterText)
+                            : [new TextRun('')],
+                        }),
+                      ],
+                    }),
+                  }
+                : {}),
             }
           : undefined,
         children,

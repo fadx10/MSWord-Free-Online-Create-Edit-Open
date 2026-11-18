@@ -137,6 +137,7 @@ interface RibbonProps {
   onOpenLinkDialog: () => void;
   onToggleHeaderFooter: () => void;
   onInsertPageNumber: (format: 'pageOfTotal' | 'pageOnly' | 'numberOnly' | 'remove') => void;
+  onOpenPageNumberDialog: () => void;
   onInsertDateTime: () => void;
   onInsertSymbol: (sym: string) => void;
   onOpenSymbolDialog: () => void;
@@ -344,6 +345,7 @@ export const Ribbon: React.FC<RibbonProps> = ({
   onOpenLinkDialog,
   onToggleHeaderFooter,
   onInsertPageNumber,
+  onOpenPageNumberDialog,
   onInsertDateTime,
   onInsertSymbol,
   onOpenSymbolDialog,
@@ -1107,9 +1109,9 @@ export const Ribbon: React.FC<RibbonProps> = ({
                       label="Page Number"
                     />
                     {openMenu === 'pageNumber' && (
-                      <div className="absolute left-0 top-16 bg-white border border-[#D2D0CE] rounded shadow-xl py-1 z-50 w-52">
+                      <div className="absolute left-0 top-16 bg-white border border-[#D2D0CE] rounded shadow-xl py-1 z-50 w-56">
                         <div className="px-3 py-1 text-[10.5px] font-semibold text-[#605E5C] border-b border-[#EDEBE9]">
-                          Insert Page Number in Footer
+                          Quick Page Number Presets
                         </div>
                         <button
                           type="button"
@@ -1145,6 +1147,16 @@ export const Ribbon: React.FC<RibbonProps> = ({
                           <span className="text-[10px] font-mono text-[#605E5C]">{'{PAGE}'}</span>
                         </button>
                         <div className="border-t border-[#EDEBE9] mt-1 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOpenMenu(null);
+                              onOpenPageNumberDialog();
+                            }}
+                            className="w-full px-3 py-1.5 text-left text-xs font-medium text-[#185ABD] hover:bg-[#EDF4FC] cursor-pointer"
+                          >
+                            Format & Placement Settings...
+                          </button>
                           <button
                             type="button"
                             onClick={() => {

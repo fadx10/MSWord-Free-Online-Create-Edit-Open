@@ -1,7 +1,27 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Eraser, Search, X } from 'lucide-react';
-import { DocumentStats } from '../types/word';
-import { SpellingIssue } from '../utils/editorHelpers';
+import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  Check,
+  Eraser,
+  Search,
+  X,
+} from 'lucide-react';
+import {
+  DocumentStats,
+  PageNumberAlignment,
+  PageNumberConfig,
+  PageNumberDisplayStyle,
+  PageNumberFormat,
+  PageNumberPlacement,
+} from '../types/word';
+import {
+  buildPageNumberTokenString,
+  formatPageNumber,
+  resolvePageNumberPlaceholders,
+  SpellingIssue,
+} from '../utils/editorHelpers';
 
 interface ModalShellProps {
   title: string;
@@ -1002,5 +1022,346 @@ export const InsertSymbolDialog: React.FC<{
     </ModalShell>
   );
 };
+
+const PAGE_NUMBER_FORMAT_OPTIONS: Array<{
+  value: PageNumberFormat;
+  label: string;
+  sample: string;
+}> = [
+  { value: 'decimal', label: '1, 2, 3, ...', sample: '1, 2, 3' },
+  { value: 'romanLower', label: 'i, ii, iii, ...', sample: 'i, ii, iii' },
+  { value: 'romanUpper', label: 'I, II, III, ...', sample: 'I, II, III' },
+  { value: 'alphaLower', label: 'a, b, c, ...', sample: 'a, b, c' },
+  { value: 'alphaUpper', label: 'A, B, C, ...', sample: 'A, B, C' },
+];
+
+const PAGE_NUMBER_STYLE_OPTIONS: Array<{
+  value: PageNumberDisplayStyle;
+  label: string;
+}> = [
+  { value: 'numberOnly', label: 'Plain Number' },
+  { value: 'pageOnly', label: 'Page Label' },
+  { value: 'pageOfTotal', label: 'Page X of Y' },
+  { value: 'dashWrapped', label: 'Dashed' },
+];
+
+export const PageNumberDialog: React.FC<{
+  initialConfig: PageNumberConfig;
+  totalPages: number;
+  onApply: (config: PageNumberConfig) => void;
+  onRemove: () => void;
+  onClose: () => void;
+}> = ({ initialConfig, totalPages, onApply, onRemove, onClose }) => {
+  const [placement, setPlacement] = useState<PageNumberPlacement>(initialConfig.placement);
+  const [alignment, setAlignment] = useState<PageNumberAlignment>(initialConfig.alignment);
+  const [numberFormat, setNumberFormat] = useState<PageNumberFormat>(initialConfig.numberFormat);
+  const [displayStyle, setDisplayStyle] = useState<PageNumberDisplayStyle>(
+    initialConfig.displayStyle
+  );
+  const [startAtInput, setStartAtInput] = useState<string>(String(initialConfig.startAt || 1));
+  const [showOnFirstPage, setShowOnFirstPage] = useState<boolean>(
+    initialConfig.showOnFirstPage
+  );
+  const [previewPage, setPreviewPage] = useState<1 | 2>(1);
+
+  const parsedStartAt = Math.max(1, Math.min(9999, Math.floor(Number(startAtInput) || 1)));
+
+  const currentConfig: PageNumberConfig = {
+    enabled: true,
+    placement,
+    alignment,
+    numberFormat,
+    displayStyle,
+    startAt: parsedStartAt,
+    showOnFirstPage,
+  };
+
+  const previewSample = useMemo(() => {
+    const token = buildPageNumberTokenString(displayStyle);
+    const effectiveTotal = Math.max(totalPages, 3);
+    return resolvePageNumberPlaceholders(token, previewPage, effectiveTotal, currentConfig);
+  }, [currentConfig, displayStyle, previewPage, totalPages]);
+
+  const sequencePreview = useMemo(() => {
+    return [0, 1, 2]
+      .map((offset) => formatPageNumber(parsedStartAt + offset, numberFormat))
+      .join(', ');
+  }, [numberFormat, parsedStartAt]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onApply(currentConfig);
+    onClose();
+  };
+
+  const previewAlignClass =
+    alignment === 'left'
+      ? 'justify-start text-left'
+      : alignment === 'right'
+        ? 'justify-end text-right'
+        : 'justify-center text-center';
+
+  return (
+    <ModalShell title="Page Numbers" onClose={onClose} widthClass="max-w-xl">
+      <form onSubmit={handleSubmit} className="space-y-4 text-xs text-[#242424]">
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_168px] gap-4 items-start">
+          {/* Left Controls */}
+          <div className="space-y-3.5">
+            {/* Placement */}
+            <div>
+              <label className="block text-[11px] font-semibold text-[#484644] mb-1.5">
+                Position (Placement)
+              </label>
+              <div className="grid grid-cols-2 gap-1.5 p-1 bg-[#F3F2F1] rounded border border-[#E1DFDD]">
+                {(
+                  [
+                    { id: 'top', label: 'Top of Page (Header)' },
+                    { id: 'bottom', label: 'Bottom of Page (Footer)' },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setPlacement(opt.id)}
+                    className={`py-1.5 px-2.5 rounded text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                      placement === opt.id
+                        ? 'bg-white text-[#185ABD] shadow-xs border border-[#D2D0CE]'
+                        : 'text-[#484644] hover:text-[#242424]'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Alignment */}
+            <div>
+              <label className="block text-[11px] font-semibold text-[#484644] mb-1.5">
+                Alignment
+              </label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {(
+                  [
+                    { id: 'left', label: 'Left', icon: AlignLeft },
+                    { id: 'center', label: 'Center', icon: AlignCenter },
+                    { id: 'right', label: 'Right', icon: AlignRight },
+                  ] as const
+                ).map(({ id, label, icon: Icon }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setAlignment(id)}
+                    className={`h-8 px-2.5 rounded border flex items-center justify-center gap-1.5 text-[11px] font-medium transition-colors cursor-pointer ${
+                      alignment === id
+                        ? 'bg-[#CFE4FA]/65 border-[#185ABD] text-[#185ABD]'
+                        : 'border-[#C8C6C4] bg-white text-[#323130] hover:bg-[#F3F2F1]'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Display Style */}
+            <div>
+              <label className="block text-[11px] font-semibold text-[#484644] mb-1.5">
+                Display Style
+              </label>
+              <div className="grid grid-cols-2 gap-1.5">
+                {PAGE_NUMBER_STYLE_OPTIONS.map((opt) => {
+                  const sampleText = resolvePageNumberPlaceholders(
+                    buildPageNumberTokenString(opt.value),
+                    1,
+                    Math.max(totalPages, 3),
+                    { ...currentConfig, showOnFirstPage: true }
+                  );
+                  const active = displayStyle === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setDisplayStyle(opt.value)}
+                      className={`px-2.5 py-2 rounded border text-left transition-colors cursor-pointer ${
+                        active
+                          ? 'bg-[#CFE4FA]/65 border-[#185ABD] text-[#185ABD]'
+                          : 'border-[#C8C6C4] bg-white hover:bg-[#FAF9F8]'
+                      }`}
+                    >
+                      <div className="text-[11px] font-semibold leading-tight">{opt.label}</div>
+                      <div className="text-[11px] text-[#605E5C] mt-0.5 tabular-nums truncate">
+                        {sampleText}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Number Format + Starting Number */}
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label
+                  htmlFor="page-number-format"
+                  className="block text-[11px] font-semibold text-[#484644] mb-1"
+                >
+                  Number format
+                </label>
+                <select
+                  id="page-number-format"
+                  value={numberFormat}
+                  onChange={(e) => setNumberFormat(e.target.value as PageNumberFormat)}
+                  className="w-full h-8 px-2 border border-[#C8C6C4] rounded bg-white text-xs focus:border-[#185ABD] outline-none"
+                >
+                  {PAGE_NUMBER_FORMAT_OPTIONS.map((fmt) => (
+                    <option key={fmt.value} value={fmt.value}>
+                      {fmt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="page-number-start-at"
+                  className="block text-[11px] font-semibold text-[#484644] mb-1"
+                >
+                  Start at
+                </label>
+                <input
+                  id="page-number-start-at"
+                  type="number"
+                  min={1}
+                  max={9999}
+                  value={startAtInput}
+                  onChange={(e) => setStartAtInput(e.target.value)}
+                  onBlur={() => setStartAtInput(String(parsedStartAt))}
+                  className="w-full h-8 px-2.5 border border-[#C8C6C4] rounded focus:border-[#185ABD] outline-none tabular-nums"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-2 pt-0.5">
+              <label className="flex items-center gap-2 text-[11px] text-[#323130] cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={showOnFirstPage}
+                  onChange={(e) => setShowOnFirstPage(e.target.checked)}
+                  className="rounded border-[#C8C6C4] accent-[#185ABD]"
+                />
+                <span>Show number on first page</span>
+              </label>
+              <span className="text-[11px] text-[#605E5C] tabular-nums">
+                {sequencePreview}, ...
+              </span>
+            </div>
+          </div>
+
+          {/* Right Live Page Preview */}
+          <div className="bg-[#F3F2F1] border border-[#E1DFDD] rounded p-3 flex flex-col items-center">
+            <div className="w-full flex items-center justify-between mb-2">
+              <span className="text-[11px] font-semibold text-[#484644]">Preview</span>
+              <div className="flex items-center gap-1 bg-white border border-[#D2D0CE] rounded p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setPreviewPage(1)}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-medium cursor-pointer ${
+                    previewPage === 1 ? 'bg-[#185ABD] text-white' : 'text-[#605E5C]'
+                  }`}
+                >
+                  P1
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewPage(2)}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-medium cursor-pointer ${
+                    previewPage === 2 ? 'bg-[#185ABD] text-white' : 'text-[#605E5C]'
+                  }`}
+                >
+                  P2
+                </button>
+              </div>
+            </div>
+
+            <div className="w-32 h-44 bg-white border border-[#C8C6C4] shadow-sm rounded-[2px] p-2.5 flex flex-col justify-between">
+              {/* Header Zone */}
+              <div
+                className={`min-h-4 flex items-center text-[9px] tabular-nums px-1 rounded ${previewAlignClass} ${
+                  placement === 'top'
+                    ? previewSample
+                      ? 'bg-[#CFE4FA]/70 text-[#104A9E] font-semibold'
+                      : 'bg-[#FAF9F8] text-[#8A8886] italic'
+                    : 'text-transparent'
+                }`}
+              >
+                {placement === 'top' ? previewSample || 'Hidden on P1' : '—'}
+              </div>
+
+              {/* Body Skeleton */}
+              <div className="space-y-1.5 my-auto px-0.5">
+                <div className="h-1.5 w-3/4 bg-[#E1DFDD] rounded-xs" />
+                <div className="h-1 w-full bg-[#EDEBE9] rounded-xs" />
+                <div className="h-1 w-11/12 bg-[#EDEBE9] rounded-xs" />
+                <div className="h-1 w-full bg-[#EDEBE9] rounded-xs" />
+                <div className="h-1 w-4/5 bg-[#EDEBE9] rounded-xs" />
+                <div className="h-1 w-full bg-[#EDEBE9] rounded-xs mt-2" />
+                <div className="h-1 w-2/3 bg-[#EDEBE9] rounded-xs" />
+              </div>
+
+              {/* Footer Zone */}
+              <div
+                className={`min-h-4 flex items-center text-[9px] tabular-nums px-1 rounded ${previewAlignClass} ${
+                  placement === 'bottom'
+                    ? previewSample
+                      ? 'bg-[#CFE4FA]/70 text-[#104A9E] font-semibold'
+                      : 'bg-[#FAF9F8] text-[#8A8886] italic'
+                    : 'text-transparent'
+                }`}
+              >
+                {placement === 'bottom' ? previewSample || 'Hidden on P1' : '—'}
+              </div>
+            </div>
+
+            <div className="mt-2 text-[10.5px] text-[#605E5C] text-center">
+              {placement === 'top' ? 'Header' : 'Footer'} · {alignment}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#E1DFDD]">
+          <button
+            type="button"
+            onClick={() => {
+              onRemove();
+              onClose();
+            }}
+            className="px-3 py-1.5 rounded border border-[#C8C6C4] text-[#A4262C] hover:bg-[#F3F2F1] cursor-pointer"
+          >
+            Remove Page Numbers
+          </button>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-1.5 rounded border border-[#C8C6C4] hover:bg-[#F3F2F1] cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-1.5 rounded bg-[#185ABD] text-white font-semibold hover:bg-[#104A9E] cursor-pointer"
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+      </form>
+    </ModalShell>
+  );
+};
+
 
 

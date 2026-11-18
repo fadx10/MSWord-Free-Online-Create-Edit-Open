@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Clock,
@@ -25,9 +25,112 @@ import {
   DocumentStats,
   MARGIN_INCHES,
   PAGE_DIMENSIONS_INCHES,
+  THEME_PALETTES,
 } from '../types/word';
+import { resolvePageNumberPlaceholders } from '../utils/editorHelpers';
 
 export type BackstageSection = 'home' | 'new' | 'open' | 'info' | 'export' | 'options';
+
+const PREVIEW_VIRTUAL_WIDTH = 560;
+const PREVIEW_VIRTUAL_HEIGHT = Math.round((PREVIEW_VIRTUAL_WIDTH * 4) / 3);
+
+const TemplateMiniPreview: React.FC<{ template: WordTemplate }> = ({ template }) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [cardWidth, setCardWidth] = useState(176);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const updateWidth = () => {
+      if (el.clientWidth > 0) {
+        setCardWidth(el.clientWidth);
+      }
+    };
+    updateWidth();
+
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  if (template.id === 'blank') {
+    return (
+      <div
+        ref={containerRef}
+        className="aspect-[3/4] w-full bg-white border border-[#D2D0CE] group-hover:border-[#185ABD] group-hover:shadow-md rounded-[3px] transition-all flex flex-col items-center justify-center p-4 relative overflow-hidden"
+      >
+        <div
+          className="absolute top-0 left-0 right-0 h-1"
+          style={{ backgroundColor: template.accentColor }}
+        />
+        <div className="w-11 h-11 rounded-full bg-[#EDF4FC] text-[#185ABD] flex items-center justify-center mb-2 group-hover:scale-105 transition-transform">
+          <FilePlus2 className="w-5 h-5" />
+        </div>
+        <span className="text-[11px] font-medium text-[#605E5C]">Blank Page</span>
+      </div>
+    );
+  }
+
+  const themeKey = template.settings.theme ?? 'office';
+  const theme = THEME_PALETTES[themeKey];
+  const marginKey = template.settings.margins ?? 'normal';
+  const margins = MARGIN_INCHES[marginKey];
+  const padY = Math.round(margins.top * 34);
+  const padX = Math.round(margins.left * 34);
+  const scale = cardWidth / PREVIEW_VIRTUAL_WIDTH;
+  const resolvedFooter = template.footerText
+    ? resolvePageNumberPlaceholders(template.footerText, 1, 1, template.settings.pageNumbers)
+    : '';
+
+  return (
+    <div
+      ref={containerRef}
+      className="aspect-[3/4] w-full bg-white border border-[#D2D0CE] group-hover:border-[#185ABD] group-hover:shadow-md rounded-[3px] transition-all relative overflow-hidden"
+    >
+      <div
+        aria-hidden="true"
+        className="pointer-events-none select-none absolute top-0 left-0 bg-white flex flex-col justify-between"
+        style={{
+          width: `${PREVIEW_VIRTUAL_WIDTH}px`,
+          height: `${PREVIEW_VIRTUAL_HEIGHT}px`,
+          transform: `scale(${scale})`,
+          transformOrigin: 'top left',
+          padding: `${padY}px ${padX}px`,
+          backgroundColor: template.settings.pageColor ?? '#FFFFFF',
+          borderTop: `4px solid ${template.accentColor}`,
+        }}
+      >
+        {template.headerText ? (
+          <div className="text-[8.5pt] text-[#8A8886] text-right pb-2 truncate">
+            {resolvePageNumberPlaceholders(template.headerText, 1, 1, template.settings.pageNumbers)}
+          </div>
+        ) : (
+          <div />
+        )}
+
+        <div
+          className="word-editor-content flex-1 overflow-hidden"
+          style={
+            {
+              fontFamily: theme.fontBody,
+              lineHeight: template.settings.lineSpacing ?? 1.15,
+              '--doc-heading-color': theme.primary,
+            } as React.CSSProperties
+          }
+          dangerouslySetInnerHTML={{ __html: template.contentHtml }}
+        />
+
+        {resolvedFooter ? (
+          <div className="text-[8.5pt] text-[#8A8886] text-center pt-2 border-t border-[#F3F2F1] truncate">
+            {resolvedFooter}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+};
 
 interface FileBackstageProps {
   initialSection?: BackstageSection;
@@ -286,73 +389,24 @@ export const FileBackstage: React.FC<FileBackstageProps> = ({
                   </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                  {filteredTemplates.map((tpl) => {
-                    const hasTable = tpl.contentHtml.includes('<table');
-                    const hasChecklist = tpl.contentHtml.includes('word-tickbox');
-                    return (
-                      <button
-                        key={tpl.id}
-                        type="button"
-                        title={tpl.description}
-                        onClick={() => onCreateFromTemplate(tpl)}
-                        className="group text-left cursor-pointer flex flex-col"
-                      >
-                        <div className="aspect-[3/4] w-full bg-white border border-[#D2D0CE] group-hover:border-[#185ABD] group-hover:shadow-md rounded transition-all p-3 flex flex-col justify-between overflow-hidden">
-                          <div>
-                            <div
-                              className="h-1.5 w-10 rounded-full mb-2"
-                              style={{ backgroundColor: tpl.accentColor }}
-                            />
-                            {tpl.id === 'blank' ? (
-                              <div className="h-full flex items-center justify-center pt-8">
-                                <FilePlus2 className="w-8 h-8 text-[#185ABD]/70" />
-                              </div>
-                            ) : (
-                              <div className="space-y-1.5">
-                                <div className="h-2 w-4/5 bg-[#242424]/80 rounded-sm" />
-                                <div className="h-1.5 w-3/5 bg-[#605E5C]/40 rounded-sm" />
-                                <div className="pt-2 space-y-1">
-                                  <div className="h-1 w-full bg-[#D2D0CE] rounded-sm" />
-                                  <div className="h-1 w-11/12 bg-[#D2D0CE] rounded-sm" />
-                                  <div className="h-1 w-4/5 bg-[#D2D0CE] rounded-sm" />
-                                </div>
-                                {hasChecklist && (
-                                  <div className="pt-1.5 space-y-1">
-                                    <div className="flex items-center gap-1">
-                                      <span className="w-1.5 h-1.5 rounded-[1px] border border-[#185ABD] inline-block shrink-0" />
-                                      <div className="h-1 w-3/4 bg-[#C8C6C4] rounded-sm" />
-                                    </div>
-                                    <div className="flex items-center gap-1">
-                                      <span className="w-1.5 h-1.5 rounded-[1px] border border-[#185ABD] inline-block shrink-0" />
-                                      <div className="h-1 w-2/3 bg-[#C8C6C4] rounded-sm" />
-                                    </div>
-                                  </div>
-                                )}
-                                {hasTable && !hasChecklist && (
-                                  <div className="pt-1.5 grid grid-cols-3 gap-0.5">
-                                    <div className="h-1.5 bg-[#185ABD]/20 rounded-[1px]" />
-                                    <div className="h-1.5 bg-[#185ABD]/20 rounded-[1px]" />
-                                    <div className="h-1.5 bg-[#185ABD]/20 rounded-[1px]" />
-                                    <div className="h-1.5 bg-[#EDEBE9] rounded-[1px]" />
-                                    <div className="h-1.5 bg-[#EDEBE9] rounded-[1px]" />
-                                    <div className="h-1.5 bg-[#EDEBE9] rounded-[1px]" />
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                          <span className="text-[10px] text-[#605E5C]">{tpl.category}</span>
-                        </div>
-                        <div className="mt-1.5 text-xs font-medium text-[#242424] group-hover:text-[#185ABD] truncate">
-                          {tpl.name}
-                        </div>
-                        <div className="text-[10.5px] text-[#605E5C] line-clamp-2 leading-snug mt-0.5">
-                          {tpl.description}
-                        </div>
-                      </button>
-                    );
-                  })}
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
+                  {filteredTemplates.map((tpl) => (
+                    <button
+                      key={tpl.id}
+                      type="button"
+                      title={tpl.description}
+                      onClick={() => onCreateFromTemplate(tpl)}
+                      className="group text-left cursor-pointer flex flex-col"
+                    >
+                      <TemplateMiniPreview template={tpl} />
+                      <div className="mt-2 text-xs font-semibold text-[#242424] group-hover:text-[#185ABD] truncate">
+                        {tpl.name}
+                      </div>
+                      <div className="text-[10.5px] text-[#605E5C] line-clamp-2 leading-snug mt-0.5">
+                        {tpl.category} · {tpl.description}
+                      </div>
+                    </button>
+                  ))}
                 </div>
               )}
             </section>

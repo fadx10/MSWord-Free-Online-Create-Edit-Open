@@ -30,6 +30,7 @@ interface EditorCanvasProps {
   onFooterChange: (val: string) => void;
   onInput: () => void;
   onSelectionChange: () => void;
+  onClickComment?: (commentId: string) => void;
   onContextMenu: (e: React.MouseEvent<HTMLDivElement>) => void;
   onDropFile: (file: File) => void;
 }
@@ -48,9 +49,11 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   onFooterChange,
   onInput,
   onSelectionChange,
+  onClickComment,
   onContextMenu,
   onDropFile,
 }) => {
+  const [headerFocused, setHeaderFocused] = useState(false);
   const [footerFocused, setFooterFocused] = useState(false);
 
   const dim = PAGE_DIMENSIONS_INCHES[settings.pageSize];
@@ -81,12 +84,39 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       ? '4px 4px 0px #8A8886, 0 2px 10px rgba(0,0,0,0.12)'
       : '0 2px 8px rgba(0, 0, 0, 0.12), 0 0 1px rgba(0, 0, 0, 0.08)';
 
-  const hasPagePlaceholder = /\{PAGE\}|\{NUMPAGES\}/.test(footerText);
+  const pageNumberConfig = settings.pageNumbers;
+  const hasHeaderPlaceholder = /\{PAGE\}|\{NUMPAGES\}/.test(headerText);
+  const hasFooterPlaceholder = /\{PAGE\}|\{NUMPAGES\}/.test(footerText);
+  const resolvedHeader = resolvePageNumberPlaceholders(
+    headerText,
+    currentPage,
+    totalPages,
+    pageNumberConfig
+  );
   const resolvedFooter = resolvePageNumberPlaceholders(
     footerText,
     currentPage,
-    totalPages
+    totalPages,
+    pageNumberConfig
   );
+
+  const headerAlignClass =
+    pageNumberConfig?.enabled && pageNumberConfig.placement === 'top'
+      ? pageNumberConfig.alignment === 'left'
+        ? 'text-left'
+        : pageNumberConfig.alignment === 'center'
+          ? 'text-center'
+          : 'text-right'
+      : 'text-right';
+
+  const footerAlignClass =
+    pageNumberConfig?.enabled && pageNumberConfig.placement === 'bottom'
+      ? pageNumberConfig.alignment === 'left'
+        ? 'text-left'
+        : pageNumberConfig.alignment === 'right'
+          ? 'text-right'
+          : 'text-center'
+      : 'text-center';
 
   return (
     <div
@@ -169,12 +199,24 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           >
             <input
               type="text"
-              value={headerText}
+              value={headerFocused ? headerText : resolvedHeader}
+              onFocus={() => setHeaderFocused(true)}
+              onBlur={() => setHeaderFocused(false)}
               onChange={(e) => onHeaderChange(e.target.value)}
               placeholder="Document Header (click to edit)"
+              title={
+                hasHeaderPlaceholder
+                  ? 'Automatic page numbering active ({PAGE} / {NUMPAGES})'
+                  : 'Click to edit header'
+              }
               readOnly={viewMode === 'read'}
-              className="w-full text-[9.5pt] text-[#605E5C] bg-transparent outline-none text-right placeholder:text-[#A19F9D]"
+              className={`w-full text-[9.5pt] text-[#605E5C] bg-transparent outline-none tabular-nums placeholder:text-[#A19F9D] ${headerAlignClass}`}
             />
+            {headerFocused && hasHeaderPlaceholder && (
+              <div className="no-print text-[10px] text-[#185ABD] text-center mt-0.5 select-none">
+                Use {'{PAGE}'} for current page and {'{NUMPAGES}'} for total pages
+              </div>
+            )}
           </div>
         )}
 
@@ -300,6 +342,18 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
             }}
             onKeyUp={onSelectionChange}
             onMouseUp={onSelectionChange}
+            onClick={(e) => {
+              const sel = window.getSelection();
+              if (sel && !sel.isCollapsed) return;
+              const target = e.target as HTMLElement | null;
+              const mark = target?.closest<HTMLElement>('.word-comment-highlight[data-comment-id]');
+              if (mark && editorRef.current?.contains(mark)) {
+                const commentId = mark.getAttribute('data-comment-id');
+                if (commentId) {
+                  onClickComment?.(commentId);
+                }
+              }
+            }}
             onContextMenu={onContextMenu}
             style={{
               fontFamily: isImported
@@ -341,12 +395,12 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               onChange={(e) => onFooterChange(e.target.value)}
               placeholder="Document Footer (click to edit)"
               title={
-                hasPagePlaceholder
+                hasFooterPlaceholder
                   ? 'Automatic page numbering active ({PAGE} / {NUMPAGES})'
                   : 'Click to edit footer'
               }
               readOnly={viewMode === 'read'}
-              className="w-full text-[9.5pt] text-[#605E5C] bg-transparent outline-none text-center tabular-nums placeholder:text-[#A19F9D]"
+              className={`w-full text-[9.5pt] text-[#605E5C] bg-transparent outline-none tabular-nums placeholder:text-[#A19F9D] ${footerAlignClass}`}
             />
             {footerFocused && (
               <div className="no-print text-[10px] text-[#185ABD] text-center mt-0.5 select-none">

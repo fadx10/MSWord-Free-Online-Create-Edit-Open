@@ -1,13 +1,148 @@
-import { DocumentStats, HeadingOutlineItem } from '../types/word';
+import {
+  DEFAULT_PAGE_NUMBER_CONFIG,
+  DocumentSettings,
+  DocumentStats,
+  HeadingOutlineItem,
+  PageNumberConfig,
+  PageNumberDisplayStyle,
+  PageNumberFormat,
+} from '../types/word';
+
+const ROMAN_NUMERALS: Array<[number, string]> = [
+  [1000, 'M'],
+  [900, 'CM'],
+  [500, 'D'],
+  [400, 'CD'],
+  [100, 'C'],
+  [90, 'XC'],
+  [50, 'L'],
+  [40, 'XL'],
+  [10, 'X'],
+  [9, 'IX'],
+  [5, 'V'],
+  [4, 'IV'],
+  [1, 'I'],
+];
+
+export function formatPageNumber(num: number, format: PageNumberFormat = 'decimal'): string {
+  const safeNum = Math.max(1, Math.floor(num));
+
+  if (format === 'romanLower' || format === 'romanUpper') {
+    let remaining = Math.min(safeNum, 3999);
+    let roman = '';
+    for (const [value, symbol] of ROMAN_NUMERALS) {
+      while (remaining >= value) {
+        roman += symbol;
+        remaining -= value;
+      }
+    }
+    return format === 'romanLower' ? roman.toLowerCase() : roman;
+  }
+
+  if (format === 'alphaLower' || format === 'alphaUpper') {
+    let n = safeNum;
+    let letters = '';
+    while (n > 0) {
+      n -= 1;
+      letters = String.fromCharCode(65 + (n % 26)) + letters;
+      n = Math.floor(n / 26);
+    }
+    return format === 'alphaLower' ? letters.toLowerCase() : letters;
+  }
+
+  return String(safeNum);
+}
+
+export function buildPageNumberTokenString(displayStyle: PageNumberDisplayStyle): string {
+  switch (displayStyle) {
+    case 'numberOnly':
+      return '{PAGE}';
+    case 'pageOnly':
+      return 'Page {PAGE}';
+    case 'dashWrapped':
+      return '- {PAGE} -';
+    case 'pageOfTotal':
+    default:
+      return 'Page {PAGE} of {NUMPAGES}';
+  }
+}
+
+export function stripPageNumberTokens(text: string): string {
+  return text
+    .replace(/\s*[·|]?\s*Page\s*\{PAGE\}(\s*of\s*\{NUMPAGES\})?/gi, '')
+    .replace(/\s*[·|]?\s*-\s*\{PAGE\}\s*-/gi, '')
+    .replace(/\s*[·|]?\s*\{PAGE\}\s*(\/|of)\s*\{NUMPAGES\}/gi, '')
+    .replace(/\s*[·|]?\s*\{PAGE\}/gi, '')
+    .replace(/\s*[·|]?\s*\{NUMPAGES\}/gi, '')
+    .replace(/^[\s·|]+|[\s·|]+$/g, '')
+    .trim();
+}
+
+export function applyPageNumberToken(existingText: string, token: string): string {
+  const cleaned = stripPageNumberTokens(existingText);
+  return cleaned ? `${cleaned} · ${token}` : token;
+}
+
+export function inferPageNumberConfig(
+  settings: DocumentSettings,
+  headerText: string,
+  footerText: string
+): PageNumberConfig {
+  const saved = settings.pageNumbers;
+  const hasHeaderToken = /\{PAGE\}|\{NUMPAGES\}/.test(headerText);
+  const hasFooterToken = /\{PAGE\}|\{NUMPAGES\}/.test(footerText);
+  const tokenSource = hasHeaderToken ? headerText : footerText;
+
+  let inferredStyle: PageNumberDisplayStyle = 'pageOfTotal';
+  if (/-\s*\{PAGE\}\s*-/i.test(tokenSource)) {
+    inferredStyle = 'dashWrapped';
+  } else if (/\{PAGE\}.*\{NUMPAGES\}/i.test(tokenSource)) {
+    inferredStyle = 'pageOfTotal';
+  } else if (/Page\s*\{PAGE\}/i.test(tokenSource)) {
+    inferredStyle = 'pageOnly';
+  } else if (/\{PAGE\}/i.test(tokenSource)) {
+    inferredStyle = 'numberOnly';
+  }
+
+  if (saved) {
+    return {
+      ...DEFAULT_PAGE_NUMBER_CONFIG,
+      ...saved,
+      startAt: Math.max(1, Math.floor(saved.startAt || 1)),
+    };
+  }
+
+  return {
+    ...DEFAULT_PAGE_NUMBER_CONFIG,
+    enabled: hasHeaderToken || hasFooterToken,
+    placement: hasHeaderToken && !hasFooterToken ? 'top' : 'bottom',
+    alignment: hasHeaderToken && !hasFooterToken ? 'right' : 'center',
+    displayStyle: inferredStyle,
+  };
+}
 
 export function resolvePageNumberPlaceholders(
   template: string,
   currentPage: number,
-  totalPages: number
+  totalPages: number,
+  config?: Partial<PageNumberConfig>
 ): string {
+  if (!template) return '';
+  const hasToken = /\{PAGE\}|\{NUMPAGES\}/.test(template);
+  if (!hasToken) return template;
+
+  if (config?.showOnFirstPage === false && currentPage === 1) {
+    return stripPageNumberTokens(template);
+  }
+
+  const startAt = Math.max(1, Math.floor(config?.startAt ?? 1));
+  const numberFormat = config?.numberFormat ?? 'decimal';
+  const displayPage = formatPageNumber(startAt + Math.max(1, currentPage) - 1, numberFormat);
+  const displayTotal = formatPageNumber(Math.max(1, totalPages), numberFormat);
+
   return template
-    .replace(/\{PAGE\}/g, String(currentPage))
-    .replace(/\{NUMPAGES\}/g, String(totalPages));
+    .replace(/\{PAGE\}/g, displayPage)
+    .replace(/\{NUMPAGES\}/g, displayTotal);
 }
 
 export interface PaginationMetrics {

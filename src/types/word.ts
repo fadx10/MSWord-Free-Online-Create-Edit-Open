@@ -16,6 +16,30 @@ export type MarginPreset = 'normal' | 'narrow' | 'moderate' | 'wide';
 export type ViewMode = 'print' | 'web' | 'read';
 export type PageBorderStyle = 'none' | 'box' | 'shadow' | 'double';
 export type ThemePreset = 'office' | 'facet' | 'integral' | 'editorial';
+export type PageNumberFormat = 'decimal' | 'romanLower' | 'romanUpper' | 'alphaLower' | 'alphaUpper';
+export type PageNumberPlacement = 'top' | 'bottom';
+export type PageNumberAlignment = 'left' | 'center' | 'right';
+export type PageNumberDisplayStyle = 'numberOnly' | 'pageOnly' | 'pageOfTotal' | 'dashWrapped';
+
+export interface PageNumberConfig {
+  enabled: boolean;
+  placement: PageNumberPlacement;
+  alignment: PageNumberAlignment;
+  numberFormat: PageNumberFormat;
+  displayStyle: PageNumberDisplayStyle;
+  startAt: number;
+  showOnFirstPage: boolean;
+}
+
+export const DEFAULT_PAGE_NUMBER_CONFIG: PageNumberConfig = {
+  enabled: false,
+  placement: 'bottom',
+  alignment: 'center',
+  numberFormat: 'decimal',
+  displayStyle: 'pageOfTotal',
+  startAt: 1,
+  showOnFirstPage: true,
+};
 
 export interface ImportedBaseStyle {
   fontFamily?: string;
@@ -47,6 +71,7 @@ export interface DocumentSettings {
   showNavigationPane: boolean;
   showDocumentOutline?: boolean;
   showHeaderFooter: boolean;
+  pageNumbers?: PageNumberConfig;
   preserveImportedStyles?: boolean;
   importedBaseStyle?: ImportedBaseStyle;
   importedCss?: string;
@@ -104,6 +129,7 @@ export const DEFAULT_DOCUMENT_SETTINGS: DocumentSettings = {
   showNavigationPane: false,
   showDocumentOutline: false,
   showHeaderFooter: false,
+  pageNumbers: { ...DEFAULT_PAGE_NUMBER_CONFIG },
 };
 
 export const MARGIN_INCHES: Record<

@@ -8,6 +8,7 @@ import {
   InsertSymbolDialog,
   LinkDialog,
   MailMergeDialog,
+  PageNumberDialog,
   ProofingDialog,
   SplitCellsDialog,
   WatermarkDialog,
@@ -37,6 +38,7 @@ import {
   HeadingOutlineItem,
   MARGIN_INCHES,
   PAGE_DIMENSIONS_INCHES,
+  PageNumberConfig,
   RibbonTab,
   ViewMode,
 } from './types/word';
@@ -48,9 +50,11 @@ import {
 } from './utils/docxEngine';
 import {
   adjustParagraphLeftIndent,
+  applyPageNumberToken,
   applySearchHighlights,
   buildChecklistGroupHtml,
   buildChecklistItemHtml,
+  buildPageNumberTokenString,
   buildTableHtml,
   buildTableOfContentsHtml,
   buildTickBoxHtml,
@@ -58,10 +62,13 @@ import {
   computePaginationMetrics,
   extractHeadingOutline,
   findSearchMatchRanges,
+  formatPageNumber,
+  inferPageNumberConfig,
   readBlockIndentationState,
   runQuickProofingCheck,
   setParagraphLeftIndent,
   SpellingIssue,
+  stripPageNumberTokens,
   toggleParagraphFirstLineIndent,
 } from './utils/editorHelpers';
 import {
@@ -91,6 +98,13 @@ import {
   reorderFootnotesByAppearance,
   updateFootnoteText,
 } from './utils/footnoteHelpers';
+import {
+  scrollToCommentHighlight,
+  setCommentHighlightResolved,
+  syncActiveCommentHighlight,
+  unwrapCommentHighlight,
+  wrapRangeWithCommentHighlight,
+} from './utils/commentHelpers';
 
 const STORAGE_RECENT_KEY = 'word_online_recent_docs_v2';
 const STORAGE_ACTIVE_ID_KEY = 'word_online_active_id_v2';
@@ -168,6 +182,8 @@ export default function App() {
   const [backstageOpen, setBackstageOpen] = useState(true);
   const [backstageSection, setBackstageSection] = useState<BackstageSection>('home');
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
+  const [pendingCommentQuote, setPendingCommentQuote] = useState('');
   const [footnotesOpen, setFootnotesOpen] = useState(false);
   const [navSubTab, setNavSubTab] = useState<'outline' | 'find' | 'replace'>('outline');
 
@@ -183,6 +199,7 @@ export default function App() {
     | 'proofing'
     | 'splitCells'
     | 'symbol'
+    | 'pageNumber'
   >(null);
   const [proofingIssues, setProofingIssues] = useState<SpellingIssue[]>([]);
   const [splitTarget, setSplitTarget] = useState<{
@@ -325,6 +342,8 @@ export default function App() {
     setCurrentPage(1);
     setHeadings(extractHeadingOutline(editorRef.current));
     setFootnotes(extractFootnotes(editorRef.current));
+    setActiveCommentId(null);
+    setPendingCommentQuote('');
     selectedTableRef.current = null;
     setTableDesign({
       hasSelectedTable: false,
@@ -334,6 +353,11 @@ export default function App() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeDoc.id]);
+
+  // Sync active comment highlight class in editor DOM without mutating document history
+  useEffect(() => {
+    syncActiveCommentHighlight(editorRef.current, commentsOpen ? activeCommentId : null);
+  }, [activeCommentId, commentsOpen, activeDoc.id]);
 
   // Recalculate page metrics when page size, margins, or orientation change
   useEffect(() => {
@@ -472,7 +496,9 @@ export default function App() {
   const saveSelection = useCallback(() => {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0 && editorRef.current?.contains(sel.anchorNode)) {
-      savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+      const cloned = sel.getRangeAt(0).cloneRange();
+      savedRangeRef.current = cloned;
+      setPendingCommentQuote(cloned.collapsed ? '' : cloned.toString().trim());
     }
   }, []);
 
@@ -1481,29 +1507,169 @@ export default function App() {
   );
 
   // Comments
+  const captureSelectionForComment = useCallback(() => {
+    const sel = window.getSelection();
+    let range: Range | null = null;
+    if (
+      sel &&
+      sel.rangeCount > 0 &&
+      !sel.isCollapsed &&
+      editorRef.current?.contains(sel.anchorNode)
+    ) {
+      range = sel.getRangeAt(0).cloneRange();
+      savedRangeRef.current = range;
+    } else if (
+      savedRangeRef.current &&
+      !savedRangeRef.current.collapsed &&
+      editorRef.current?.contains(savedRangeRef.current.commonAncestorContainer)
+    ) {
+      range = savedRangeRef.current;
+    }
+    setPendingCommentQuote(range ? range.toString().trim() : '');
+    return range;
+  }, []);
+
   const handleAddComment = useCallback(
     (text?: string) => {
-      const quote = window.getSelection()?.toString().trim() || '';
+      const range = captureSelectionForComment();
       if (!text) {
         setCommentsOpen(true);
         return;
       }
+
+      const commentId = `cmt-${Date.now()}`;
+      let quote = '';
+
+      if (
+        range &&
+        !range.collapsed &&
+        editorRef.current &&
+        editorRef.current.contains(range.commonAncestorContainer)
+      ) {
+        quote = wrapRangeWithCommentHighlight(editorRef.current, range, commentId);
+        refreshEditorDerivedState();
+      } else {
+        quote = range?.toString().trim() || pendingCommentQuote || '';
+      }
+
       const newComment: DocumentComment = {
-        id: `cmt-${Date.now()}`,
+        id: commentId,
         author: authorName,
         text,
         quote,
         createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         resolved: false,
       };
+
       setActiveDoc((prev) => ({
         ...prev,
         comments: [newComment, ...prev.comments],
       }));
+      setActiveCommentId(commentId);
       setCommentsOpen(true);
+
+      savedRangeRef.current = null;
+      setPendingCommentQuote('');
+      window.getSelection()?.removeAllRanges();
     },
-    [authorName]
+    [authorName, captureSelectionForComment, pendingCommentQuote, refreshEditorDerivedState]
   );
+
+  const handleToggleResolveComment = useCallback(
+    (id: string) => {
+      const current = activeDoc.comments.find((c) => c.id === id);
+      const nextResolved = current ? !current.resolved : true;
+      if (setCommentHighlightResolved(editorRef.current, id, nextResolved)) {
+        refreshEditorDerivedState();
+      }
+      setActiveDoc((prev) => ({
+        ...prev,
+        comments: prev.comments.map((c) =>
+          c.id === id ? { ...c, resolved: !c.resolved } : c
+        ),
+      }));
+    },
+    [activeDoc.comments, refreshEditorDerivedState]
+  );
+
+  const handleDeleteComment = useCallback(
+    (id: string) => {
+      if (unwrapCommentHighlight(editorRef.current, id)) {
+        refreshEditorDerivedState();
+      }
+      setActiveDoc((prev) => ({
+        ...prev,
+        comments: prev.comments.filter((c) => c.id !== id),
+      }));
+      setActiveCommentId((prev) => (prev === id ? null : prev));
+    },
+    [refreshEditorDerivedState]
+  );
+
+  const handleOpenCommentFromHighlight = useCallback(
+    (commentId: string) => {
+      setActiveCommentId(commentId);
+      setCommentsOpen(true);
+      if (viewMode === 'read') {
+        setViewMode('print');
+      }
+    },
+    [viewMode]
+  );
+
+  const handleSelectCommentFromPane = useCallback((commentId: string) => {
+    setActiveCommentId(commentId);
+    scrollToCommentHighlight(editorRef.current, commentId);
+  }, []);
+
+  const handleApplyPageNumberConfig = useCallback(
+    (config: PageNumberConfig) => {
+      const token = buildPageNumberTokenString(config.displayStyle);
+      setActiveDoc((prev) => {
+        const cleanedHeader = stripPageNumberTokens(prev.headerText);
+        const cleanedFooter = stripPageNumberTokens(prev.footerText);
+        const nextHeader =
+          config.placement === 'top' ? applyPageNumberToken(cleanedHeader, token) : cleanedHeader;
+        const nextFooter =
+          config.placement === 'bottom' ? applyPageNumberToken(cleanedFooter, token) : cleanedFooter;
+
+        return {
+          ...prev,
+          headerText: nextHeader,
+          footerText: nextFooter,
+          settings: {
+            ...prev.settings,
+            showHeaderFooter: true,
+            pageNumbers: { ...config, enabled: true },
+          },
+        };
+      });
+      const startLabel = formatPageNumber(config.startAt, config.numberFormat);
+      showToast(
+        `Page numbers placed in ${config.placement === 'top' ? 'Header' : 'Footer'} (${config.alignment}), starting at ${startLabel}`
+      );
+    },
+    [showToast]
+  );
+
+  const handleRemovePageNumbers = useCallback(() => {
+    setActiveDoc((prev) => {
+      const currentCfg = inferPageNumberConfig(prev.settings, prev.headerText, prev.footerText);
+      return {
+        ...prev,
+        headerText: stripPageNumberTokens(prev.headerText),
+        footerText: stripPageNumberTokens(prev.footerText),
+        settings: {
+          ...prev.settings,
+          pageNumbers: {
+            ...currentCfg,
+            enabled: false,
+          },
+        },
+      };
+    });
+    showToast('Removed page numbers from document');
+  }, [showToast]);
 
   const updateSettings = useCallback((patch: Partial<DocumentSettings>) => {
     setActiveDoc((prev) => ({
@@ -1593,25 +1759,9 @@ export default function App() {
       },
       {
         id: 'insert-page-number',
-        label: 'Insert Page Number in Footer',
+        label: 'Configure Page Numbers (Style, Start & Placement)...',
         category: 'Insert',
-        action: () => {
-          setActiveDoc((prev) => {
-            const existing = prev.footerText.trim();
-            const token = 'Page {PAGE} of {NUMPAGES}';
-            const nextFooter = existing
-              ? /\{PAGE\}|\{NUMPAGES\}/.test(existing)
-                ? existing
-                : `${existing} · ${token}`
-              : token;
-            return {
-              ...prev,
-              footerText: nextFooter,
-              settings: { ...prev.settings, showHeaderFooter: true },
-            };
-          });
-          showToast('Inserted automatic page number in footer');
-        },
+        action: () => setModal('pageNumber'),
       },
       {
         id: 'word-count',
@@ -1815,7 +1965,10 @@ export default function App() {
           zoom={zoom}
           commentsCount={activeDoc.comments.length}
           commentsOpen={commentsOpen}
-          onToggleCommentsPane={() => setCommentsOpen((o) => !o)}
+          onToggleCommentsPane={() => {
+            captureSelectionForComment();
+            setCommentsOpen((o) => !o);
+          }}
           footnotesCount={footnotes.length}
           footnotesOpen={footnotesOpen}
           onToggleFootnotesPane={() => setFootnotesOpen((o) => !o)}
@@ -1868,39 +2021,22 @@ export default function App() {
             updateSettings({ showHeaderFooter: !activeDoc.settings.showHeaderFooter })
           }
           onInsertPageNumber={(format) => {
-            setActiveDoc((prev) => {
-              const existing = prev.footerText
-                .replace(/\s*·?\s*Page\s*\{PAGE\}(\s*of\s*\{NUMPAGES\})?/gi, '')
-                .replace(/\s*·?\s*\{PAGE\}(\s*\/\s*\{NUMPAGES\})?/gi, '')
-                .trim();
-
-              if (format === 'remove') {
-                return {
-                  ...prev,
-                  footerText: existing,
-                };
-              }
-
-              const token =
-                format === 'pageOfTotal'
-                  ? 'Page {PAGE} of {NUMPAGES}'
-                  : format === 'pageOnly'
-                    ? 'Page {PAGE}'
-                    : '{PAGE}';
-
-              const nextFooter = existing ? `${existing} · ${token}` : token;
-              return {
-                ...prev,
-                footerText: nextFooter,
-                settings: { ...prev.settings, showHeaderFooter: true },
-              };
-            });
-            showToast(
-              format === 'remove'
-                ? 'Removed page numbers from footer'
-                : 'Automatic page numbering added to footer'
+            if (format === 'remove') {
+              handleRemovePageNumbers();
+              return;
+            }
+            const currentCfg = inferPageNumberConfig(
+              activeDoc.settings,
+              activeDoc.headerText,
+              activeDoc.footerText
             );
+            handleApplyPageNumberConfig({
+              ...currentCfg,
+              enabled: true,
+              displayStyle: format,
+            });
           }}
+          onOpenPageNumberDialog={() => setModal('pageNumber')}
           onInsertDateTime={() =>
             insertHtmlAtCursor(
               new Date().toLocaleDateString(undefined, {
@@ -1937,7 +2073,10 @@ export default function App() {
           }}
           onOpenWordCount={() => setModal('wordCount')}
           onToggleReadAloud={() => handleToggleReadAloud()}
-          onAddComment={() => setCommentsOpen(true)}
+          onAddComment={() => {
+            captureSelectionForComment();
+            setCommentsOpen(true);
+          }}
           onViewModeChange={setViewMode}
           onZoomChange={setZoom}
           onFitPageWidth={() => {
@@ -2017,6 +2156,7 @@ export default function App() {
           onFooterChange={(val) => setActiveDoc((prev) => ({ ...prev, footerText: val }))}
           onInput={refreshEditorDerivedState}
           onSelectionChange={handleEditorMouseUp}
+          onClickComment={handleOpenCommentFromHighlight}
           onContextMenu={(e) => {
             e.preventDefault();
             const sel = window.getSelection();
@@ -2092,21 +2232,12 @@ export default function App() {
         {commentsOpen && viewMode !== 'read' && (
           <CommentsPane
             comments={activeDoc.comments}
+            activeCommentId={activeCommentId}
+            pendingQuote={pendingCommentQuote}
             onAddComment={(txt) => handleAddComment(txt)}
-            onToggleResolve={(id) =>
-              setActiveDoc((prev) => ({
-                ...prev,
-                comments: prev.comments.map((c) =>
-                  c.id === id ? { ...c, resolved: !c.resolved } : c
-                ),
-              }))
-            }
-            onDeleteComment={(id) =>
-              setActiveDoc((prev) => ({
-                ...prev,
-                comments: prev.comments.filter((c) => c.id !== id),
-              }))
-            }
+            onSelectComment={handleSelectCommentFromPane}
+            onToggleResolve={handleToggleResolveComment}
+            onDeleteComment={handleDeleteComment}
             onClose={() => setCommentsOpen(false)}
           />
         )}
@@ -2170,7 +2301,10 @@ export default function App() {
           onExecCommand={execEditorCommand}
           onClearFormatting={() => execEditorCommand('removeFormat')}
           onOpenLinkDialog={() => setModal('link')}
-          onAddComment={() => setCommentsOpen(true)}
+          onAddComment={() => {
+            captureSelectionForComment();
+            setCommentsOpen(true);
+          }}
           onReadSelection={() => handleToggleReadAloud(contextMenu.selectedText)}
           onSearchSelection={(q) => {
             updateSettings({ showNavigationPane: true });
@@ -2342,6 +2476,20 @@ export default function App() {
       {modal === 'symbol' && (
         <InsertSymbolDialog
           onInsert={insertSymbolAtCursor}
+          onClose={() => setModal(null)}
+        />
+      )}
+
+      {modal === 'pageNumber' && (
+        <PageNumberDialog
+          initialConfig={inferPageNumberConfig(
+            activeDoc.settings,
+            activeDoc.headerText,
+            activeDoc.footerText
+          )}
+          totalPages={stats.pages}
+          onApply={handleApplyPageNumberConfig}
+          onRemove={handleRemovePageNumbers}
           onClose={() => setModal(null)}
         />
       )}
